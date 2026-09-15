@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Silly Apps, small free apps by Edmund Lim</title>
-    <meta name="description" content="Silly Apps is Edmund Lim's list of small free apps. Lazy Man's Reminders for the iPhone Lock Screen, and UsageWidget for leftover AI usage.">
+    <meta name="description" content="Silly Apps is Edmund Lim's list of small free apps. Join the waitlist for Lazy Man's Reminders and UsageWidget.">
     <link rel="canonical" href="https://sillyapps.co/">
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
@@ -14,13 +14,13 @@
     <meta property="og:site_name" content="Silly Apps">
     <meta property="og:url" content="https://sillyapps.co/">
     <meta property="og:title" content="Silly Apps, small free apps by Edmund Lim">
-    <meta property="og:description" content="A one-page list of Edmund Lim's small free apps. Lazy Man's Reminders and UsageWidget.">
+    <meta property="og:description" content="A one-page list of Edmund Lim's small free apps. Join the waitlist for Lazy Man's Reminders and UsageWidget.">
     <meta property="og:image" content="https://sillyapps.co/assets/og.png">
     <meta property="og:image:width" content="1200">
     <meta property="og:image:height" content="630">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="Silly Apps, small free apps by Edmund Lim">
-    <meta name="twitter:description" content="A one-page list of Edmund Lim's small free apps. Lazy Man's Reminders and UsageWidget.">
+    <meta name="twitter:description" content="A one-page list of Edmund Lim's small free apps. Join the waitlist for Lazy Man's Reminders and UsageWidget.">
     <meta name="twitter:image" content="https://sillyapps.co/assets/og.png">
     <link rel="stylesheet" href="/styles.css">
     <script type="application/ld+json">
@@ -31,7 +31,7 @@
             "@type": "WebSite",
             "name": "Silly Apps",
             "url": "https://sillyapps.co/",
-            "description": "Small free apps by Edmund Lim.",
+            "description": "Small free apps by Edmund Lim. Join the waitlist for launch notes.",
             "author": {
               "@type": "Person",
               "name": "Edmund Lim",
@@ -45,7 +45,7 @@
             "applicationCategory": "UtilitiesApplication",
             "operatingSystem": "iOS",
             "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
-            "url": "https://lmr.edmundlim.systems"
+            "url": "https://sillyapps.co/"
           },
           {
             "@type": "SoftwareApplication",
@@ -53,34 +53,70 @@
             "applicationCategory": "UtilitiesApplication",
             "operatingSystem": "iOS",
             "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
-            "url": "https://github.com/EdmundLimBoEn/UsageWidget"
+            "url": "https://sillyapps.co/"
           }
         ]
       }
     </script>
   </head>
   <body>
-    <a class="skip" href="#apps">Skip to apps</a>
+    <a class="skip" href="#waitlist">Skip to waitlist</a>
     <header class="site-header wrap">
       <a class="wordmark" href="/">sillyapps</a>
-      <p class="byline">Edmund Lim</p>
+      <p class="byline">
+        Edmund Lim
+        <a class="header-waitlist" href="#waitlist">Waitlist</a>
+      </p>
     </header>
 
     <main>
       <section class="hero wrap">
         <h1>Small free apps.</h1>
         <p>
-          A one-pager, not a store. Each card is one app and a way to get it.
-          More cards will show up here as they ship.
+          A one-pager, not a store. Join the waitlist. Edmund will email you
+          when something is ready.
         </p>
         <svg class="hero-rule" viewBox="0 0 280 12" fill="none" aria-hidden="true">
           <path d="M1 8c28-8 54 6 82 0s52-8 82 0 54 6 82-4" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
         </svg>
       </section>
 
+      <section id="waitlist" class="waitlist wrap" aria-labelledby="waitlist-heading">
+        <form class="waitlist-card" data-waitlist-form novalidate>
+          <h2 id="waitlist-heading">Join the waitlist</h2>
+          <p class="waitlist-lead">
+            Leave an email. When an app ships, you get a note. Nothing else.
+          </p>
+
+          <label class="hp">
+            Company
+            <input type="text" name="company" tabindex="-1" autocomplete="off">
+          </label>
+
+          <div class="waitlist-fields">
+            <div class="field">
+              <label for="waitlist-name">Name <span class="optional">optional</span></label>
+              <input id="waitlist-name" name="name" type="text" maxlength="80" autocomplete="name">
+            </div>
+            <div class="field">
+              <label for="waitlist-email">Email</label>
+              <input id="waitlist-email" name="email" type="email" required autocomplete="email" inputmode="email" spellcheck="false">
+            </div>
+          </div>
+
+          <div class="waitlist-actions">
+            <button class="btn btn-primary waitlist-submit" type="submit">Join the waitlist</button>
+            <p class="privacy">Emails are only used to tell you when an app launches.</p>
+            <p class="form-status" data-waitlist-status role="status" aria-live="polite"></p>
+          </div>
+          <noscript>
+            <p class="privacy">JavaScript is off, so email hello@edmundlim.systems to join.</p>
+          </noscript>
+        </form>
+      </section>
+
       <section id="apps" class="apps wrap" aria-label="Apps">
         <div class="app-grid">
-          <!-- Copy this <article> to add another app. Set data-tone to calm or utility. Put a real URL on the primary Get it button, or leave href as # for a placeholder. -->
           <article class="app-card" data-app="lazy-mans-reminders" data-tone="calm">
             <div class="app-top">
               <svg class="icon" viewBox="0 0 72 72" aria-hidden="true">
@@ -106,11 +142,10 @@
             <ul class="notes">
               <li>Lock Screen</li>
               <li>Live Activities</li>
-              <li>Web board</li>
+              <li>Reminders</li>
             </ul>
             <p class="cta-row">
-              <a class="btn btn-primary" href="#">Get it on TestFlight <span class="soon">link soon</span></a>
-              <a class="btn btn-ghost" href="https://lmr.edmundlim.systems">Open the web board</a>
+              <a class="btn btn-primary" href="#waitlist">Join the waitlist</a>
             </p>
           </article>
 
@@ -136,12 +171,10 @@
             <ul class="notes">
               <li>Home Screen widget</li>
               <li>Self-hosted</li>
-              <li>Source on GitHub</li>
+              <li>AI usage bars</li>
             </ul>
             <p class="cta-row">
-              <a class="btn btn-primary" href="#">Get it on the App Store <span class="soon">soon</span></a>
-              <a class="btn btn-ghost" href="https://github.com/EdmundLimBoEn/UsageWidget">Source on GitHub</a>
-              <a class="btn btn-ghost" href="https://usagewidget.edmundlim.systems">Install notes</a>
+              <a class="btn btn-primary" href="#waitlist">Join the waitlist</a>
             </p>
           </article>
         </div>
@@ -154,6 +187,6 @@
         <p><a href="mailto:hello@edmundlim.systems">hello@edmundlim.systems</a></p>
       </div>
     </footer>
-    <script src="/apps.js"></script>
+    <script src="/waitlist.js"></script>
   </body>
 </html>

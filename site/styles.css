@@ -9,7 +9,6 @@
   --accent-ink: #fff8ef;
   --sage: #3f6f62;
   --slate: #3a4a7a;
-  --soon: #8a6a4e;
   --shadow: 0 10px 30px rgba(36, 28, 20, 0.08);
   --radius: 1.25rem;
   --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif;
@@ -102,9 +101,22 @@ a:hover {
 }
 
 .byline {
+  display: flex;
+  align-items: baseline;
+  gap: 0.85rem;
   margin: 0;
   color: var(--muted);
   font-size: 0.92rem;
+}
+
+.header-waitlist {
+  color: var(--ink);
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.header-waitlist:hover {
+  color: var(--accent);
 }
 
 .hero {
@@ -135,8 +147,130 @@ a:hover {
   color: var(--accent);
 }
 
+.waitlist {
+  padding: 0.25rem 0 1.75rem;
+}
+
+.waitlist-card {
+  display: grid;
+  gap: 0.95rem;
+  padding: 1.25rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-top: 4px solid var(--accent);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.waitlist-card h2 {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: clamp(1.45rem, 4.4vw, 2.05rem);
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+}
+
+.waitlist-lead {
+  margin: 0;
+  max-width: 36rem;
+  color: var(--muted);
+}
+
+.hp {
+  position: absolute;
+  left: -10000px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+.waitlist-fields {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.field {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.field label {
+  color: var(--ink);
+  font-size: 0.88rem;
+  font-weight: 650;
+}
+
+.optional {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.field input {
+  width: 100%;
+  min-height: 2.85rem;
+  padding: 0.55rem 0.85rem;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 0.9rem;
+  font: inherit;
+}
+
+.field input:focus {
+  border-color: var(--accent);
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.waitlist-actions {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.waitlist-submit {
+  width: 100%;
+  border: 0;
+}
+
+.waitlist-submit:disabled {
+  cursor: wait;
+  filter: none;
+  opacity: 0.75;
+}
+
+.privacy {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.form-status {
+  min-height: 1.3em;
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 650;
+}
+
+.form-status[data-kind="ok"] {
+  color: var(--sage);
+}
+
+.form-status[data-kind="err"] {
+  color: var(--accent);
+}
+
+.form-status[data-kind="pending"] {
+  color: var(--muted);
+}
+
+.waitlist-card.is-success .waitlist-fields,
+.waitlist-card.is-success .waitlist-submit,
+.waitlist-card.is-success .hp {
+  display: none;
+}
+
 .apps {
-  padding: 0.5rem 0 3rem;
+  padding: 0.25rem 0 3rem;
 }
 
 .app-grid {
@@ -234,6 +368,7 @@ a:hover {
   gap: 0.4rem;
   min-height: 2.75rem;
   padding: 0.55rem 1rem;
+  border: 0;
   border-radius: 999px;
   font: inherit;
   font-size: 0.95rem;
@@ -261,30 +396,6 @@ a:hover {
 .btn-ghost:hover {
   color: var(--ink);
   border-color: var(--ink);
-}
-
-.btn.is-placeholder {
-  cursor: default;
-  opacity: 0.92;
-}
-
-.btn.is-placeholder:hover {
-  filter: none;
-}
-
-.soon {
-  padding: 0.05rem 0.45rem;
-  border-radius: 999px;
-  background: rgba(255, 248, 239, 0.22);
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-}
-
-.btn-ghost .soon {
-  background: var(--paper);
-  color: var(--soon);
 }
 
 .site-footer {
@@ -327,6 +438,21 @@ a:hover {
   .site-header,
   .hero {
     padding-top: 1.75rem;
+  }
+
+  .waitlist-card {
+    padding: 1.55rem 1.7rem 1.45rem;
+  }
+
+  .waitlist-fields {
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.25fr);
+    align-items: end;
+  }
+
+  .waitlist-submit {
+    width: auto;
+    min-width: 13.5rem;
+    justify-self: start;
   }
 
   .app-grid {
