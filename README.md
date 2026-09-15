@@ -1,26 +1,67 @@
 # sillyapps.co
 
-Landing page for [sillyapps.co](https://sillyapps.co). Edmund Lim's list of small free apps. One page, cards that link out. Not a store and not a blog.
+Landing page for [sillyapps.co](https://sillyapps.co). Edmund Lim's list of small free apps. One page and a waitlist. Not a store and not a blog.
 
-The site files live in `site/`. There is no build step.
+The static files live in `site/`. The waitlist API lives in `functions/`. There is no build step.
 
 ## Preview locally
 
-From the repo root:
+Static page only, from the repo root:
 
 ```sh
 python3 -m http.server 8787 --directory site
 ```
 
-Open [http://127.0.0.1:8787](http://127.0.0.1:8787). Python's server does not serve `site/404.html`. Cloudflare Pages and `wrangler pages dev` do.
+Open [http://127.0.0.1:8787](http://127.0.0.1:8787). That server does not run Pages Functions, so the form cannot save signups.
 
-If Wrangler is already on your PATH:
+To exercise the waitlist API, copy `.dev.vars.example` to `.dev.vars`, then:
 
 ```sh
-npx wrangler pages dev site
+npx wrangler d1 migrations apply sillyapps-waitlist --local
+npx wrangler pages dev
 ```
 
-That serves on [http://127.0.0.1:8788](http://127.0.0.1:8788) by default.
+That serves on [http://127.0.0.1:8788](http://127.0.0.1:8788) by default. Local D1 uses the placeholder `database_id` in `wrangler.jsonc`. That is enough for `wrangler pages dev`.
+
+Checks:
+
+```sh
+node scripts/check-site.mjs
+node scripts/test-waitlist.mjs
+```
+
+## How the waitlist works
+
+The form on the home page POSTs JSON to `/api/waitlist` (`functions/api/waitlist.js`).
+
+The function:
+
+1. Reads JSON (or a regular form body).
+2. Rejects a missing or malformed email.
+3. Treats a filled hidden `company` field as spam and returns success without writing a row.
+4. Inserts into the D1 `waitlist` table. The email is the primary key, so a repeat signup is a no-op.
+
+Name is optional. Duplicate emails stay one row. The page tells people their address is only used for a launch note.
+
+Edmund exports later with a GET. Launch mail itself is out of scope.
+
+### Export signups
+
+After Jeremy sets `WAITLIST_ADMIN_TOKEN`:
+
+```sh
+curl -fsS -H "Authorization: Bearer $WAITLIST_ADMIN_TOKEN" \
+  https://sillyapps.co/api/waitlist > waitlist.csv
+```
+
+JSON instead of CSV:
+
+```sh
+curl -fsS -H "Authorization: Bearer $WAITLIST_ADMIN_TOKEN" \
+  "https://sillyapps.co/api/waitlist?format=json"
+```
+
+If the secret is unset, that route returns 404 on purpose.
 
 ## Add an app card
 
@@ -29,19 +70,74 @@ Copy an `<article class="app-card">` in `site/index.html`. Keep the same fields:
 - `data-app` as a stable id
 - `data-tone` as `calm` or `utility` (top border color)
 - kicker, name, blurb, notes
-- a primary Get it button, then live outbound links
+- a primary waitlist button that points at `#waitlist`
 
-If TestFlight or the App Store URL is not public yet, leave the primary button `href` as `#`. `site/apps.js` treats `#` as a placeholder and blocks the click. Paste a real URL into `href` when you have it, and delete the `<span class="soon">` label.
+Do not add TestFlight, App Store, or other store download links. Edmund will mail waitlistees when a real link exists.
 
 Bump the `app-index` number (`01`, `02`, then `03`). Add a matching `SoftwareApplication` block in the JSON-LD script if the app should show up in search rich results.
 
 ## Deploy on Cloudflare Pages
 
-Jeremy owns production deploy for `sillyapps.co`. DNS is out of scope for this repo. The notes below are the Pages and Wrangler steps only.
+Jeremy owns production deploy for project `sillyapps` and domain `sillyapps.co`. DNS is out of scope. Previous deploys were a direct upload of `site/` only. This revision adds Pages Functions, so deploy from the repo root. A `site/`-only upload will not include `/api/waitlist`.
+
+### 1. Create the D1 database
+
+```sh
+npx wrangler login
+npx wrangler d1 create sillyapps-waitlist
+```
+
+Copy the printed `database_id` UUID into `wrangler.jsonc` in place of `00000000-0000-0000-0000-000000000000`. Keep the binding name `DB` and the database name `sillyapps-waitlist`.
+
+### 2. Apply the schema on the remote database
+
+```sh
+npx wrangler d1 migrations apply sillyapps-waitlist --remote
+```
+
+That creates table `waitlist` (`email`, `name`, `created_at`).
+
+### 3. Bind D1 to the Pages project
+
+`npx wrangler pages deploy` from this repo reads `wrangler.jsonc` and should attach `DB`. If the dashboard still shows no D1 binding after a deploy:
+
+1. Open Workers & Pages → project `sillyapps` → Settings → Bindings.
+2. Add a D1 binding.
+3. Variable name `DB`.
+4. Database `sillyapps-waitlist`.
+5. Redeploy.
+
+Use the same binding in Production. Add it on Preview too if preview URLs should accept signups.
+
+### 4. Set the export secret
+
+Pick a long random token. Do not commit it.
+
+```sh
+echo "your-long-random-token" | npx wrangler pages secret put WAITLIST_ADMIN_TOKEN --project-name sillyapps
+```
+
+No other secrets are required. Turnstile is not wired, so there is no Turnstile site key to create. The form uses a honeypot instead.
+
+### 5. Deploy
+
+From the repo root, with `main` checked out:
+
+```sh
+npx wrangler pages deploy
+```
+
+`wrangler.jsonc` already sets project name `sillyapps` and output dir `./site`. To be explicit:
+
+```sh
+npx wrangler pages deploy --project-name sillyapps --branch main
+```
+
+Do not run `npx wrangler pages deploy site`. That uploads the asset folder without the root `functions/` directory.
 
 ### Git-connected project
 
-In the Cloudflare dashboard, create a Pages project from `EdmundLimBoEn/sillyapps`.
+If the Pages project is connected to `EdmundLimBoEn/sillyapps`, use:
 
 | Setting | Value |
 | --- | --- |
@@ -51,36 +147,16 @@ In the Cloudflare dashboard, create a Pages project from `EdmundLimBoEn/sillyapp
 | Build output directory | `site` |
 | Root directory | `/` |
 
-Each push to `main` publishes production. Other branches get preview URLs.
-
-### Wrangler direct upload
-
-After `wrangler login`:
-
-```sh
-npx wrangler pages deploy
-```
-
-`wrangler.jsonc` already points at `./site` and the project name `sillyapps`. If the Pages project does not exist yet, create it in the dashboard first, or run `npx wrangler pages project create sillyapps`. To set the name and branch explicitly:
-
-```sh
-npx wrangler pages deploy site --project-name sillyapps --branch main
-```
+Functions still come from `/functions` at the repo root, not from `site/`. Each push to `main` publishes production. Bindings in `wrangler.jsonc` apply on that deploy. Still run the D1 create and migration commands once. Still set `WAITLIST_ADMIN_TOKEN`.
 
 ### Custom domain `sillyapps.co`
 
-This is an apex domain. The zone must sit on the same Cloudflare account as the Pages project.
+The apex domain should already be attached to project `sillyapps`. After a successful deploy, `https://sillyapps.co` serves `site/` and `https://sillyapps.co/api/waitlist` serves the function. Preview hostnames stay on `*.pages.dev`. Keep production on `main`.
 
-1. Open the Pages project → Custom domains → Set up a domain.
-2. Enter `sillyapps.co` and continue.
-3. If the zone already points at Cloudflare nameservers, Pages adds the CNAME for you.
-4. Wait until the domain status is Active. Then `https://sillyapps.co` should serve this `site/` output.
+### Confirm production
 
-Do not add a CNAME to `*.pages.dev` by hand without attaching the domain in the Pages project first. That path returns a 522.
+1. Open `https://sillyapps.co` and submit the form with a real email you control.
+2. Confirm the success message.
+3. Export with the curl command above and check that the email is in the CSV.
 
-Preview hostnames stay on `*.pages.dev`. Keep production on `main`.
-
-## Links still to paste
-
-- Lazy Man's Reminders TestFlight public join URL, on the first card's primary button in `site/index.html`. The web board is already linked at [lmr.edmundlim.systems](https://lmr.edmundlim.systems).
-- UsageWidget App Store URL, on the second card's primary button. Source and install notes are already linked.
+If submit returns "Could not join right now", the D1 binding or the remote migration is missing. Check Bindings, then rerun `npx wrangler d1 migrations apply sillyapps-waitlist --remote`, then redeploy.
