@@ -6,7 +6,7 @@
     {
       "binding": "DB",
       "database_name": "sillyapps-waitlist",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "88acf455-3f8b-4079-a243-0a095ac18e5e",
       "migrations_dir": "migrations"
     }
   ]
