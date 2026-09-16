@@ -14,14 +14,14 @@ python3 -m http.server 8787 --directory site
 
 Open [http://127.0.0.1:8787](http://127.0.0.1:8787). That server does not run Pages Functions, so the form cannot save signups.
 
-To exercise the waitlist API, copy `.dev.vars.example` to `.dev.vars`, then:
+To exercise the waitlist API and admin board, copy `.dev.vars.example` to `.dev.vars`, then:
 
 ```sh
 npx wrangler d1 migrations apply sillyapps-waitlist --local
 npx wrangler pages dev
 ```
 
-That serves on [http://127.0.0.1:8788](http://127.0.0.1:8788) by default. Local D1 uses the placeholder `database_id` in `wrangler.jsonc`. That is enough for `wrangler pages dev`.
+That serves on [http://127.0.0.1:8788](http://127.0.0.1:8788) by default. Open `/admin` and paste `dev-waitlist-token` from `.dev.vars`. Local D1 uses the `database_id` in `wrangler.jsonc`. That is enough for `wrangler pages dev`.
 
 Checks:
 
@@ -63,6 +63,46 @@ curl -fsS -H "Authorization: Bearer $WAITLIST_ADMIN_TOKEN" \
 
 If the secret is unset, that route returns 404 on purpose.
 
+CSV columns are `email,name,created_at,emailed,note`. `emailed` is `1` or `0`. JSON includes those fields plus `count`, `total`, and a 7-day `days` series. Search with `q`, `from`, `to` (YYYY-MM-DD), and `emailed=0|1`.
+
+## Waitlist admin
+
+The board is at [https://sillyapps.co/admin](https://sillyapps.co/admin). It is not linked from the home page. Use the same `WAITLIST_ADMIN_TOKEN`. Do not add another secret.
+
+Paste the token on `/admin`. A successful login sets an HttpOnly `waitlist_admin` cookie (`SameSite=Strict`, `Secure` on HTTPS). The board can search, filter by date, export CSV or JSON, toggle **emailed**, edit a note, and delete a row. Logout clears the cookie.
+
+Public signup is unchanged. The form still POSTs JSON to `/api/waitlist`. A filled honeypot is dropped. Production also caps POSTs per client IP (8 per 10 minutes, best-effort per isolate). Repeat emails stay one row.
+
+### Apply the emailed and note columns
+
+Jeremy: apply the new remote migration, then push `main`. CI already deploys from the repo root.
+
+```sh
+npx wrangler d1 migrations apply sillyapps-waitlist --remote
+```
+
+That runs `migrations/0002_waitlist_admin_fields.sql`. Existing rows stay. `emailed` defaults to `0`. `note` is empty. If Wrangler reports no pending migrations, the columns are already on the remote database.
+
+If the code deploys before the migration, the board can still list, search, export, and delete. Toggles and notes wait until the migration runs.
+
+Admin API (same token as export):
+
+```sh
+# JSON list
+curl -fsS -H "Authorization: Bearer $WAITLIST_ADMIN_TOKEN" \
+  "https://sillyapps.co/api/waitlist?format=json&q=ada"
+
+# Toggle emailed / set a note
+curl -fsS -X PATCH -H "Authorization: Bearer $WAITLIST_ADMIN_TOKEN" \
+  -H "content-type: application/json" \
+  -d '{"email":"ada@example.com","emailed":true,"note":"sent launch mail"}' \
+  https://sillyapps.co/api/waitlist
+
+# Delete a row
+curl -fsS -X DELETE -H "Authorization: Bearer $WAITLIST_ADMIN_TOKEN" \
+  "https://sillyapps.co/api/waitlist?email=ada@example.com"
+```
+
 ## Add an app card
 
 Copy an `<article class="app-card">` in `site/index.html`. Keep the same fields:
@@ -95,7 +135,7 @@ Copy the printed `database_id` UUID into `wrangler.jsonc` in place of `00000000-
 npx wrangler d1 migrations apply sillyapps-waitlist --remote
 ```
 
-That creates table `waitlist` (`email`, `name`, `created_at`).
+That creates table `waitlist` (`email`, `name`, `created_at`) and, on later revisions, adds `emailed` and `note`.
 
 ### 3. Bind D1 to the Pages project
 

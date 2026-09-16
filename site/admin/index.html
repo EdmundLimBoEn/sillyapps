@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Waitlist admin, Silly Apps</title>
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="description" content="Private waitlist board for sillyapps.co.">
+    <link rel="canonical" href="https://sillyapps.co/admin/">
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <meta name="theme-color" content="#F3E6D4">
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body class="admin-body">
+    <a class="skip" href="#admin-main">Skip to board</a>
+    <header class="site-header wrap wrap-wide">
+      <a class="wordmark" href="/">sillyapps</a>
+      <p class="byline">
+        Waitlist admin
+        <button class="header-waitlist admin-logout" type="button" data-logout hidden>Log out</button>
+      </p>
+    </header>
+
+    <main id="admin-main" class="admin-main wrap wrap-wide">
+      <section class="admin-login waitlist-card" data-login>
+        <h1>Waitlist admin</h1>
+        <p class="waitlist-lead">
+          Enter the <code>WAITLIST_ADMIN_TOKEN</code>. Same token as CSV export.
+        </p>
+        <form class="admin-login-form" data-login-form>
+          <div class="field">
+            <label for="admin-token">Admin token</label>
+            <input id="admin-token" name="token" type="password" autocomplete="current-password" required>
+          </div>
+          <button class="btn btn-primary" type="submit">Open the board</button>
+          <p class="form-status" data-login-status role="status" aria-live="polite"></p>
+        </form>
+      </section>
+
+      <section class="admin-board" data-board hidden>
+        <div class="admin-hero">
+          <div>
+            <h1>Waitlist</h1>
+            <p class="admin-count" data-count>Loading…</p>
+          </div>
+          <figure class="admin-spark" data-spark hidden>
+            <figcaption>Last 7 days</figcaption>
+            <svg viewBox="0 0 140 36" role="img" aria-label="Signups in the last seven days">
+              <polyline data-spark-line fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" points=""></polyline>
+            </svg>
+          </figure>
+        </div>
+
+        <p class="admin-banner" data-migration-banner hidden>
+          D1 still needs migration <code>0002_waitlist_admin_fields</code>.
+          You can search, export, and delete. Emailed and notes wait until Jeremy applies it.
+        </p>
+
+        <form class="admin-filters" data-filters>
+          <div class="field">
+            <label for="admin-q">Search</label>
+            <input id="admin-q" name="q" type="search" placeholder="Email or name" autocomplete="off">
+          </div>
+          <div class="field">
+            <label for="admin-from">From</label>
+            <input id="admin-from" name="from" type="date">
+          </div>
+          <div class="field">
+            <label for="admin-to">To</label>
+            <input id="admin-to" name="to" type="date">
+          </div>
+          <div class="field">
+            <label for="admin-emailed">Emailed</label>
+            <select id="admin-emailed" name="emailed">
+              <option value="">All</option>
+              <option value="0">Not yet</option>
+              <option value="1">Yes</option>
+            </select>
+          </div>
+          <div class="admin-filter-actions">
+            <button class="btn btn-primary" type="submit">Filter</button>
+            <button class="btn btn-ghost" type="button" data-clear>Clear</button>
+          </div>
+        </form>
+
+        <div class="admin-exports">
+          <button class="btn btn-ghost" type="button" data-export="csv">Download CSV</button>
+          <button class="btn btn-ghost" type="button" data-export="json">Download JSON</button>
+        </div>
+
+        <p class="form-status" data-board-status role="status" aria-live="polite"></p>
+
+        <div class="admin-table-wrap">
+          <table class="admin-table">
+            <caption class="hp">Waitlist signups</caption>
+            <thead>
+              <tr>
+                <th scope="col">Email</th>
+                <th scope="col">Name</th>
+                <th scope="col">Signed up</th>
+                <th scope="col">Emailed</th>
+                <th scope="col">Note</th>
+                <th scope="col"><span class="hp">Delete</span></th>
+              </tr>
+            </thead>
+            <tbody data-rows>
+            </tbody>
+          </table>
+        </div>
+
+        <p class="admin-empty" data-empty hidden>No signups match those filters.</p>
+        <p class="privacy admin-footnote">
+          Public signup still uses a hidden company honeypot. Production also
+          caps POSTs per client IP, best-effort per isolate. Repeat emails stay one row.
+        </p>
+      </section>
+    </main>
+    <script src="/admin/admin.js"></script>
+  </body>
+</html>
