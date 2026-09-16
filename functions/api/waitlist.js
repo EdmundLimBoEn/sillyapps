@@ -1,16 +1,37 @@
 import {
+  filterSignups,
   jsonResponse,
+  lastSevenDays,
+  loadSignups,
+  normalizeEmail,
+  parseLeadPatch,
+  parseListQuery,
   parseSignup,
+  postRateLimited,
+  presentSignup,
+  readJson,
   readSignupBody,
+  requireAdmin,
   toCsv,
-  tokensMatch,
 } from "../lib/waitlist.js";
 
 function missingDatabase() {
   return jsonResponse(503, { ok: false, error: "unavailable" });
 }
 
+function getDb(context) {
+  const db = context.env.DB;
+  if (!db || typeof db.prepare !== "function") {
+    return null;
+  }
+  return db;
+}
+
 export async function onRequestPost(context) {
+  if (postRateLimited(context.request)) {
+    return jsonResponse(429, { ok: false, error: "rate_limited" });
+  }
+
   const body = await readSignupBody(context.request);
   if (body == null) {
     return jsonResponse(400, { ok: false, error: "invalid_json" });
@@ -24,8 +45,8 @@ export async function onRequestPost(context) {
     return jsonResponse(400, { ok: false, error: parsed.code });
   }
 
-  const db = context.env.DB;
-  if (!db || typeof db.prepare !== "function") {
+  const db = getDb(context);
+  if (!db) {
     return missingDatabase();
   }
 
@@ -45,34 +66,32 @@ export async function onRequestPost(context) {
 }
 
 export async function onRequestGet(context) {
-  const want = context.env.WAITLIST_ADMIN_TOKEN;
-  if (!want) {
-    return new Response(null, { status: 404 });
+  const gate = requireAdmin(context.request, context.env);
+  if (!gate.ok) {
+    return gate.response;
   }
 
-  const header = context.request.headers.get("authorization") || "";
-  const got = header.startsWith("Bearer ") ? header.slice(7) : "";
-  if (!tokensMatch(got, want)) {
-    return jsonResponse(401, { ok: false, error: "unauthorized" });
-  }
-
-  const db = context.env.DB;
-  if (!db || typeof db.prepare !== "function") {
+  const db = getDb(context);
+  if (!db) {
     return missingDatabase();
   }
 
   try {
-    const result = await db
-      .prepare(
-        "SELECT email, name, created_at FROM waitlist ORDER BY created_at ASC"
-      )
-      .all();
-    const rows = result.results || [];
+    const loaded = await loadSignups(db);
+    const query = parseListQuery(new URL(context.request.url).searchParams);
+    const matched = filterSignups(loaded.rows, query).map(presentSignup);
     const format = new URL(context.request.url).searchParams.get("format");
     if (format === "json") {
-      return jsonResponse(200, { ok: true, signups: rows });
+      return jsonResponse(200, {
+        ok: true,
+        signups: matched,
+        count: matched.length,
+        total: loaded.rows.length,
+        days: lastSevenDays(loaded.rows),
+        admin_fields: loaded.adminFields,
+      });
     }
-    return new Response(toCsv(rows), {
+    return new Response(toCsv(matched), {
       headers: {
         "content-type": "text/csv; charset=utf-8",
         "content-disposition": "attachment; filename=waitlist.csv",
@@ -81,6 +100,96 @@ export async function onRequestGet(context) {
     });
   } catch (error) {
     console.error("waitlist export failed", error?.message || error);
+    return missingDatabase();
+  }
+}
+
+export async function onRequestPatch(context) {
+  const gate = requireAdmin(context.request, context.env);
+  if (!gate.ok) {
+    return gate.response;
+  }
+
+  const parsed = parseLeadPatch(await readJson(context.request));
+  if (!parsed.ok) {
+    return jsonResponse(400, { ok: false, error: parsed.code });
+  }
+
+  const db = getDb(context);
+  if (!db) {
+    return missingDatabase();
+  }
+
+  const sets = [];
+  const binds = [];
+  if (Object.prototype.hasOwnProperty.call(parsed.patch, "emailed")) {
+    sets.push("emailed = ?");
+    binds.push(parsed.patch.emailed);
+  }
+  if (Object.prototype.hasOwnProperty.call(parsed.patch, "note")) {
+    sets.push("note = ?");
+    binds.push(parsed.patch.note);
+  }
+  binds.push(parsed.email);
+
+  try {
+    const result = await db
+      .prepare(`UPDATE waitlist SET ${sets.join(", ")} WHERE email = ?`)
+      .bind(...binds)
+      .run();
+    const changes = result?.meta?.changes ?? 0;
+    if (!changes) {
+      return jsonResponse(404, { ok: false, error: "not_found" });
+    }
+    const row = await db
+      .prepare(
+        "SELECT email, name, created_at, emailed, note FROM waitlist WHERE email = ?"
+      )
+      .bind(parsed.email)
+      .first();
+    if (!row) {
+      return jsonResponse(404, { ok: false, error: "not_found" });
+    }
+    return jsonResponse(200, { ok: true, signup: presentSignup(row) });
+  } catch (error) {
+    console.error("waitlist patch failed", error?.message || error);
+    return missingDatabase();
+  }
+}
+
+export async function onRequestDelete(context) {
+  const gate = requireAdmin(context.request, context.env);
+  if (!gate.ok) {
+    return gate.response;
+  }
+
+  const url = new URL(context.request.url);
+  let email = normalizeEmail(url.searchParams.get("email") || "");
+  if (!email) {
+    const body = await readJson(context.request);
+    email = normalizeEmail(body?.email || "");
+  }
+  if (!email) {
+    return jsonResponse(400, { ok: false, error: "invalid_email" });
+  }
+
+  const db = getDb(context);
+  if (!db) {
+    return missingDatabase();
+  }
+
+  try {
+    const result = await db
+      .prepare("DELETE FROM waitlist WHERE email = ?")
+      .bind(email)
+      .run();
+    const changes = result?.meta?.changes ?? 0;
+    if (!changes) {
+      return jsonResponse(404, { ok: false, error: "not_found" });
+    }
+    return jsonResponse(200, { ok: true, email });
+  } catch (error) {
+    console.error("waitlist delete failed", error?.message || error);
     return missingDatabase();
   }
 }

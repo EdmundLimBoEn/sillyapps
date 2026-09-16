@@ -11,7 +11,7 @@ const page = `${html}\n${css}\n${js}`;
 
 const required = [
   ["title", /<title>Silly Apps, small free apps by Edmund Lim<\/title>/],
-  ["meta description", /<meta name="description" content="Silly Apps is Edmund Lim's list of small free apps\./],
+  ["meta description", /<meta name="description" content="sillyapps is Edmund Lim's list of small free apps\./],
   ["canonical", /<link rel="canonical" href="https:\/\/sillyapps\.co\/">/],
   ["og:title", /<meta property="og:title" content="Silly Apps, small free apps by Edmund Lim">/],
   ["og:description", /<meta property="og:description"/],
@@ -53,7 +53,13 @@ if (leaked.length) {
   process.exit(1);
 }
 
-for (const file of ["assets/og.png", "assets/apple-touch-icon.png", "favicon.svg", "styles.css", "waitlist.js", "404.html", "robots.txt", "_headers"]) {
+const robots = fs.readFileSync(path.join(root, "robots.txt"), "utf8");
+if (!/Disallow: \/admin\b/.test(robots)) {
+  console.error("robots.txt must disallow /admin");
+  process.exit(1);
+}
+
+for (const file of ["assets/og.png", "assets/apple-touch-icon.png", "favicon.svg", "styles.css", "waitlist.js", "404.html", "robots.txt", "_headers", "admin/index.html", "admin/admin.js"]) {
   const full = path.join(root, file);
   if (!fs.existsSync(full)) {
     console.error("Missing file:", file);
@@ -63,6 +69,12 @@ for (const file of ["assets/og.png", "assets/apple-touch-icon.png", "favicon.svg
 
 if (fs.existsSync(path.join(root, "apps.js"))) {
   console.error("Stale placeholder script still present: apps.js");
+  process.exit(1);
+}
+
+const adminHtml = fs.readFileSync(path.join(root, "admin/index.html"), "utf8");
+if (!/noindex/.test(adminHtml) || !/data-login-form/.test(adminHtml)) {
+  console.error("admin page must be noindex and include the token form");
   process.exit(1);
 }
 
