@@ -81,7 +81,7 @@ Jeremy: apply the new remote migration, then push `main`. CI already deploys fro
 npx wrangler d1 migrations apply sillyapps-waitlist --remote
 ```
 
-That runs `migrations/0002_waitlist_admin_fields.sql`. Existing rows stay. `emailed` defaults to `0`. `note` is empty.
+That runs `migrations/0002_waitlist_admin_fields.sql`. Existing rows stay. `emailed` defaults to `0`. `note` is empty. If Wrangler reports no pending migrations, the columns are already on the remote database.
 
 If the code deploys before the migration, the board can still list, search, export, and delete. Toggles and notes wait until the migration runs.
 
