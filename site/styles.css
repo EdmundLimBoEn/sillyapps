@@ -300,6 +300,10 @@ a:hover {
   border-top: 4px solid var(--slate);
 }
 
+.app-card[data-tone="stage"] {
+  border-top: 4px solid var(--accent);
+}
+
 .app-top {
   display: grid;
   grid-template-columns: auto 1fr auto;
@@ -658,6 +662,12 @@ a:hover {
 
   .app-card {
     padding: 1.5rem;
+  }
+}
+
+@media (min-width: 980px) {
+  .app-grid {
+    grid-template-columns: 1fr 1fr 1fr;
   }
 }
 

@@ -108,9 +108,10 @@ curl -fsS -X DELETE -H "Authorization: Bearer $WAITLIST_ADMIN_TOKEN" \
 Copy an `<article class="app-card">` in `site/index.html`. Keep the same fields:
 
 - `data-app` as a stable id
-- `data-tone` as `calm` or `utility` (top border color)
+- `data-tone` as `calm`, `utility`, or `stage` (top border color)
 - kicker, name, blurb, notes
 - a primary waitlist button that points at `#waitlist`
+- an optional `btn-ghost` GitHub link when the source is public
 
 Do not add TestFlight, App Store, or other store download links. Edmund will mail waitlistees when a real link exists.
 

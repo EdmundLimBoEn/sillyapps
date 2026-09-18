@@ -20,6 +20,8 @@ const required = [
   ["twitter:card", /<meta name="twitter:card" content="summary_large_image">/],
   ["Lazy Man's Reminders", /Lazy Man's Reminders/],
   ["UsageWidget", /UsageWidget/],
+  ["Stage Wand", /Stage Wand/],
+  ["Stage Wand GitHub", /https:\/\/github\.com\/EdmundLimBoEn\/stage-wand/],
   ["waitlist heading", /id="waitlist-heading">Join the waitlist</],
   ["waitlist form", /data-waitlist-form/],
   ["email field", /id="waitlist-email"/],
