@@ -22,6 +22,9 @@ const required = [
   ["UsageWidget", /UsageWidget/],
   ["Stage Wand", /Stage Wand/],
   ["Stage Wand GitHub", /https:\/\/github\.com\/EdmundLimBoEn\/stage-wand/],
+  ["Stage Wand hosts", /Mac, Windows, Linux host/],
+  ["Stage Wand remotes", /iPhone, Android remote/],
+  ["Stage Wand JSON-LD OS", /"operatingSystem": "macOS, Windows, Linux, iOS, Android"/],
   ["waitlist heading", /id="waitlist-heading">Join the waitlist</],
   ["waitlist form", /data-waitlist-form/],
   ["email field", /id="waitlist-email"/],
@@ -36,6 +39,9 @@ const banned = [
   ["App Store CTA", /app store/i],
   ["Apple store host", /apps\.apple\.com/i],
   ["iTunes host", /itunes\.apple\.com/i],
+  ["Play Store CTA", /play store/i],
+  ["Play Store host", /play\.google\.com/i],
+  ["Microsoft Store host", /apps\.microsoft\.com/i],
   ["LMR board", /lmr\.edmundlim\.systems/i],
   ["UsageWidget host", /usagewidget\.edmundlim\.systems/i],
   ["Get it CTA", /get it on/i],
@@ -52,6 +58,28 @@ if (missing.length) {
 const leaked = banned.filter(([, re]) => re.test(page)).map(([name]) => name);
 if (leaked.length) {
   console.error("Banned store or outbound CTA still present:", leaked.join(", "));
+  process.exit(1);
+}
+
+const stageWandCard = html.match(
+  /<article class="app-card" data-app="stage-wand"[\s\S]*?<\/article>/,
+);
+if (!stageWandCard) {
+  console.error("Stage Wand card missing");
+  process.exit(1);
+}
+const stageWandHrefs = [...stageWandCard[0].matchAll(/href="([^"]+)"/g)]
+  .map((match) => match[1])
+  .sort();
+const expectedStageWandHrefs = [
+  "#waitlist",
+  "https://github.com/EdmundLimBoEn/stage-wand",
+].sort();
+if (stageWandHrefs.join("|") !== expectedStageWandHrefs.join("|")) {
+  console.error(
+    "Stage Wand card links must be waitlist and GitHub only:",
+    stageWandHrefs.join(", ") || "(none)",
+  );
   process.exit(1);
 }
 
