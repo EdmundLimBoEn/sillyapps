@@ -3,20 +3,48 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script>
+      (function () {
+        var key = "sillyapps-theme";
+        var theme = "system";
+        try {
+          theme = localStorage.getItem(key) || "system";
+        } catch (e) {}
+        if (theme !== "light" && theme !== "dark") {
+          theme = "system";
+        }
+        var dark =
+          theme === "dark" ||
+          (theme !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.setAttribute("data-theme", theme);
+        document.documentElement.style.colorScheme = dark ? "dark" : "light";
+      })();
+    </script>
     <title>Not found, Silly Apps</title>
     <meta name="robots" content="noindex">
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <meta name="theme-color" content="#F3E6D4" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#1A1511" media="(prefers-color-scheme: dark)">
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
     <header class="site-header wrap">
       <a class="wordmark" href="/">sillyapps</a>
-      <p class="byline">Edmund Lim</p>
+      <div class="header-tools">
+        <p class="byline">Edmund Lim</p>
+        <fieldset class="theme-toggle" data-theme-toggle>
+          <legend>Color theme</legend>
+          <label><input type="radio" name="color-theme" value="system" checked> System</label>
+          <label><input type="radio" name="color-theme" value="light"> Light</label>
+          <label><input type="radio" name="color-theme" value="dark"> Dark</label>
+        </fieldset>
+      </div>
     </header>
     <main class="lost wrap">
       <h1>That page is not an app.</h1>
       <p>The list lives on the home page.</p>
       <p><a class="btn btn-primary" href="/">Back to sillyapps</a></p>
     </main>
+    <script src="/theme.js"></script>
   </body>
 </html>

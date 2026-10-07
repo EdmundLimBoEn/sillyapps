@@ -1,18 +1,40 @@
 :root {
-  --paper: #f3e6d4;
-  --paper-2: #ead7bf;
-  --ink: #241c14;
-  --muted: #6e5848;
-  --card: #fff8ef;
-  --line: #e2d0b6;
-  --accent: #c45c32;
-  --accent-ink: #fff8ef;
-  --sage: #3f6f62;
-  --slate: #3a4a7a;
-  --shadow: 0 10px 30px rgba(36, 28, 20, 0.08);
+  color-scheme: light;
+  --paper: light-dark(#f3e6d4, #1a1511);
+  --paper-2: light-dark(#ead7bf, #4a3f36);
+  --ink: light-dark(#241c14, #f3e6d4);
+  --muted: light-dark(#6e5848, #c9b49a);
+  --card: light-dark(#fff8ef, #241c16);
+  --line: light-dark(#e2d0b6, #8d7462);
+  --accent: light-dark(#c45c32, #e08a5c);
+  --accent-ink: light-dark(#fff8ef, #1a1511);
+  --sage: light-dark(#3f6f62, #8fbfb0);
+  --slate: light-dark(#3a4a7a, #8fa0d0);
+  --err: light-dark(#9a3920, #e08a5c);
+  --btn: light-dark(#b04732, #e08a5c);
+  --btn-ink: light-dark(#fff8ef, #1a1511);
+  --shadow-color: light-dark(rgba(36, 28, 20, 0.08), rgba(0, 0, 0, 0.45));
+  --glow-accent: light-dark(rgba(196, 92, 50, 0.14), rgba(224, 138, 92, 0.2));
+  --glow-sage: light-dark(rgba(63, 111, 98, 0.12), rgba(143, 191, 176, 0.16));
+  --shadow: 0 10px 30px var(--shadow-color);
   --radius: 1.25rem;
   --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif;
   --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+html[data-theme="light"] {
+  color-scheme: light;
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  html[data-theme="system"],
+  html:not([data-theme]) {
+    color-scheme: dark;
+  }
 }
 
 *,
@@ -26,7 +48,6 @@
 }
 
 html {
-  color-scheme: light;
   background: var(--paper);
 }
 
@@ -38,8 +59,8 @@ body {
   font-size: 1.05rem;
   line-height: 1.55;
   background:
-    radial-gradient(1200px 420px at 10% -10%, rgba(196, 92, 50, 0.14), transparent 55%),
-    radial-gradient(900px 380px at 100% 0%, rgba(63, 111, 98, 0.12), transparent 50%),
+    radial-gradient(1200px 420px at 10% -10%, var(--glow-accent), transparent 55%),
+    radial-gradient(900px 380px at 100% 0%, var(--glow-sage), transparent 50%),
     var(--paper);
   -webkit-font-smoothing: antialiased;
 }
@@ -85,10 +106,20 @@ a:hover {
 
 .site-header {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
-  gap: 1rem;
+  flex-wrap: wrap;
+  gap: 0.75rem 1rem;
   padding: 1.25rem 0 0.5rem;
+}
+
+.header-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.65rem 1rem;
+  margin-left: auto;
 }
 
 .wordmark {
@@ -121,6 +152,56 @@ a:hover {
 
 .header-waitlist:hover {
   color: var(--accent);
+}
+
+.theme-toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
+  padding: 0.12rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--card);
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
+.theme-toggle legend {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+.theme-toggle label {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.22rem 0.52rem;
+  border-radius: 999px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.theme-toggle label:has(input:checked) {
+  color: var(--ink);
+  background: var(--paper);
+}
+
+.theme-toggle input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  pointer-events: none;
+}
+
+.theme-toggle label:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .hero {
@@ -209,7 +290,11 @@ a:hover {
   font-weight: 500;
 }
 
-.field input {
+.field input,
+.field select,
+.admin-filters select,
+.admin-table input[type="text"],
+.admin-table input[type="search"] {
   width: 100%;
   min-height: 2.85rem;
   padding: 0.55rem 0.85rem;
@@ -218,12 +303,37 @@ a:hover {
   border: 1px solid var(--line);
   border-radius: 0.9rem;
   font: inherit;
+  color-scheme: inherit;
 }
 
-.field input:focus {
+.field input:focus,
+.field select:focus,
+.admin-filters select:focus,
+.admin-table input[type="text"]:focus,
+.admin-table input[type="search"]:focus {
   border-color: var(--accent);
   outline: 2px solid var(--accent);
   outline-offset: 1px;
+}
+
+.field input:disabled,
+.admin-table input:disabled,
+.admin-filters select:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--ink);
+  caret-color: var(--ink);
+  box-shadow: 0 0 0 1000px var(--paper) inset;
 }
 
 .waitlist-actions {
@@ -260,7 +370,7 @@ a:hover {
 }
 
 .form-status[data-kind="err"] {
-  color: var(--accent);
+  color: var(--err);
 }
 
 .form-status[data-kind="pending"] {
@@ -386,12 +496,12 @@ a:hover {
 }
 
 .btn-primary {
-  background: var(--accent);
-  color: var(--accent-ink);
+  background: var(--btn);
+  color: var(--btn-ink);
 }
 
 .btn-primary:hover {
-  color: var(--accent-ink);
+  color: var(--btn-ink);
   filter: brightness(1.05);
 }
 
@@ -538,18 +648,6 @@ a:hover {
   box-shadow: var(--shadow);
 }
 
-.admin-filters select,
-.admin-table input[type="text"] {
-  width: 100%;
-  min-height: 2.85rem;
-  padding: 0.55rem 0.85rem;
-  color: var(--ink);
-  background: var(--paper);
-  border: 1px solid var(--line);
-  border-radius: 0.9rem;
-  font: inherit;
-}
-
 .admin-filter-actions {
   display: flex;
   flex-wrap: wrap;
@@ -612,10 +710,16 @@ a:hover {
   width: 5.5rem;
 }
 
+.admin-emailed input[type="checkbox"] {
+  width: 1.1rem;
+  height: 1.1rem;
+  accent-color: var(--accent);
+}
+
 .admin-delete {
   min-height: 2.2rem;
   padding: 0.3rem 0.75rem;
-  color: var(--accent);
+  color: var(--err);
 }
 
 .admin-empty,
