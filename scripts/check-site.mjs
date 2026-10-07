@@ -32,6 +32,9 @@ const required = [
   ["honeypot", /name="company"/],
   ["privacy line", /Emails are only used to tell you when an app launches\./],
   ["waitlist endpoint", /\/api\/waitlist/],
+  ["theme toggle", /data-theme-toggle/],
+  ["theme script", /\/theme\.js/],
+  ["dark theme-color", /theme-color" content="#1A1511" media="\(prefers-color-scheme: dark\)"/],
 ];
 
 const banned = [
@@ -89,7 +92,7 @@ if (!/Disallow: \/admin\b/.test(robots)) {
   process.exit(1);
 }
 
-for (const file of ["assets/og.png", "assets/apple-touch-icon.png", "favicon.svg", "styles.css", "waitlist.js", "404.html", "robots.txt", "_headers", "admin/index.html", "admin/admin.js"]) {
+for (const file of ["assets/og.png", "assets/apple-touch-icon.png", "favicon.svg", "styles.css", "waitlist.js", "theme.js", "404.html", "robots.txt", "_headers", "admin/index.html", "admin/admin.js"]) {
   const full = path.join(root, file);
   if (!fs.existsSync(full)) {
     console.error("Missing file:", file);
@@ -103,8 +106,13 @@ if (fs.existsSync(path.join(root, "apps.js"))) {
 }
 
 const adminHtml = fs.readFileSync(path.join(root, "admin/index.html"), "utf8");
-if (!/noindex/.test(adminHtml) || !/data-login-form/.test(adminHtml)) {
-  console.error("admin page must be noindex and include the token form");
+if (!/noindex/.test(adminHtml) || !/data-login-form/.test(adminHtml) || !/data-theme-toggle/.test(adminHtml)) {
+  console.error("admin page must be noindex and include the token form and theme toggle");
+  process.exit(1);
+}
+
+if (!/light-dark\(/.test(css) || !/--err:/.test(css) || !/--btn:/.test(css)) {
+  console.error("styles.css must define light-dark theme tokens including --err and --btn");
   process.exit(1);
 }
 

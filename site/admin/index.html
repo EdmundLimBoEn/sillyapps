@@ -3,22 +3,48 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script>
+      (function () {
+        var key = "sillyapps-theme";
+        var theme = "system";
+        try {
+          theme = localStorage.getItem(key) || "system";
+        } catch (e) {}
+        if (theme !== "light" && theme !== "dark") {
+          theme = "system";
+        }
+        var dark =
+          theme === "dark" ||
+          (theme !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.setAttribute("data-theme", theme);
+        document.documentElement.style.colorScheme = dark ? "dark" : "light";
+      })();
+    </script>
     <title>Waitlist admin, Silly Apps</title>
     <meta name="robots" content="noindex, nofollow">
     <meta name="description" content="Private waitlist board for sillyapps.co.">
     <link rel="canonical" href="https://sillyapps.co/admin/">
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-    <meta name="theme-color" content="#F3E6D4">
+    <meta name="theme-color" content="#F3E6D4" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#1A1511" media="(prefers-color-scheme: dark)">
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body class="admin-body">
     <a class="skip" href="#admin-main">Skip to board</a>
     <header class="site-header wrap wrap-wide">
       <a class="wordmark" href="/">sillyapps</a>
-      <p class="byline">
-        Waitlist admin
-        <button class="header-waitlist admin-logout" type="button" data-logout hidden>Log out</button>
-      </p>
+      <div class="header-tools">
+        <p class="byline">
+          Waitlist admin
+          <button class="header-waitlist admin-logout" type="button" data-logout hidden>Log out</button>
+        </p>
+        <fieldset class="theme-toggle" data-theme-toggle>
+          <legend>Color theme</legend>
+          <label><input type="radio" name="color-theme" value="system" checked> System</label>
+          <label><input type="radio" name="color-theme" value="light"> Light</label>
+          <label><input type="radio" name="color-theme" value="dark"> Dark</label>
+        </fieldset>
+      </div>
     </header>
 
     <main id="admin-main" class="admin-main wrap wrap-wide">
@@ -115,6 +141,7 @@
         </p>
       </section>
     </main>
+    <script src="/theme.js"></script>
     <script src="/admin/admin.js"></script>
   </body>
 </html>
