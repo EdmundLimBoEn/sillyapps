@@ -530,6 +530,30 @@ input:-webkit-autofill:focus {
   justify-content: space-between;
 }
 
+.share-qr {
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  margin: 0 0 0.5rem;
+}
+
+.share-qr img {
+  display: block;
+  width: 112px;
+  height: 112px;
+  /* Keep dark-on-white in both themes so phones can scan it. */
+  background: #fff;
+  border-radius: 0.5rem;
+  box-shadow: 0 0 0 1px var(--line);
+  image-rendering: pixelated;
+}
+
+.share-qr figcaption {
+  font-family: var(--serif);
+  color: var(--ink);
+}
+
 .site-footer a {
   color: inherit;
 }
