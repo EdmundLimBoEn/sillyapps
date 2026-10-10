@@ -34,6 +34,7 @@ const required = [
   ["waitlist endpoint", /\/api\/waitlist/],
   ["theme toggle", /data-theme-toggle/],
   ["theme script", /\/theme\.js/],
+  ["share QR image", /<img src="\/assets\/sillyapps-qr\.svg"[^>]*alt="QR code linking to https:\/\/sillyapps\.co"/],
   ["dark theme-color", /theme-color" content="#1A1511" media="\(prefers-color-scheme: dark\)"/],
 ];
 
@@ -117,3 +118,10 @@ if (!/light-dark\(/.test(css) || !/--err:/.test(css) || !/--btn:/.test(css)) {
 }
 
 console.log("site checks passed");
+
+// The share QR must stay dark-on-white (not themed) so it scans in dark mode.
+const qrSvg = fs.readFileSync(path.join(root, "assets", "sillyapps-qr.svg"), "utf8");
+if (!/<path fill="#fff" d="M0 0h33v33h-33z"\/>/.test(qrSvg) || !/stroke="#000"/.test(qrSvg) || /currentColor|light-dark|prefers-color-scheme/.test(qrSvg)) {
+  console.error("Share QR must be a fixed black-on-white SVG with a quiet zone");
+  process.exit(1);
+}
