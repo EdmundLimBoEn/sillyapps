@@ -277,7 +277,7 @@
               <li>Accessibility permission for pasting</li>
             </ul>
             <p class="cta-row">
-              <a class="btn btn-primary" href="https://github.com/EdmundLimBoEn/snippets/releases/latest/download/Snippets.dmg">Download for Mac</a>
+              <a class="btn btn-primary" href="https://github.com/EdmundLimBoEn/snippets/releases/latest/download/Snippets.dmg" onclick="document.getElementById('snippets-download').showModal()">Download for Mac</a>
               <a class="btn btn-ghost" href="https://github.com/EdmundLimBoEn/snippets">Source on GitHub</a>
             </p>
           </article>
@@ -295,6 +295,14 @@
         <p><a href="mailto:hello@edmundlim.systems">hello@edmundlim.systems</a></p>
       </div>
     </footer>
+    <dialog id="snippets-download" class="download-note">
+      <form method="dialog">
+        <h2>Wait!</h2>
+        <p>We advise you use <a href="https://hyperkey.app" target="_blank" rel="noopener">Hyperkey</a> or <a href="https://karabiner-elements.pqrs.org" target="_blank" rel="noopener">Karabiner-Elements</a> with this app.</p>
+        <button class="btn btn-primary">Got it</button>
+        <small>Your download has started.</small>
+      </form>
+    </dialog>
     <script src="/theme.js"></script>
     <script src="/waitlist.js"></script>
   </body>

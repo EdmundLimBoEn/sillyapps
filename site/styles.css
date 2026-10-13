@@ -805,3 +805,33 @@ input:-webkit-autofill:focus {
     transition: none !important;
   }
 }
+
+.download-note {
+  max-width: 24rem;
+  padding: 1.5rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--ink);
+  box-shadow: var(--shadow);
+  text-align: center;
+}
+
+.download-note::backdrop {
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.download-note h2 {
+  margin: 0 0 0.5rem;
+  font-family: var(--serif);
+}
+
+.download-note p {
+  margin: 0 0 1rem;
+}
+
+.download-note small {
+  display: block;
+  margin-top: 0.75rem;
+  color: var(--muted);
+}
