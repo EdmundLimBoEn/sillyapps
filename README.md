@@ -110,12 +110,12 @@ Copy an `<article class="app-card">` in `site/index.html`. Keep the same fields:
 - `data-app` as a stable id
 - `data-tone` as `calm`, `utility`, or `stage` (top border color)
 - kicker, name, blurb, notes
-- a primary waitlist button that points at `#waitlist`
+- a primary download button for apps with a release link, or a waitlist button that points at `#waitlist`
 - an optional `btn-ghost` GitHub link when the source is public
 
-Do not add TestFlight, App Store, or other store download links. Edmund will mail waitlistees when a real link exists.
+Snippets links directly to its latest GitHub DMG release. For apps still on the waitlist, Edmund will mail waitlistees when a real link exists. Do not add TestFlight, App Store, or other store download links.
 
-Bump the `app-index` number (`01`, `02`, then `03`). Add a matching `SoftwareApplication` block in the JSON-LD script if the app should show up in search rich results.
+Bump the `app-index` number (`01`, `02`, `03`, then `04`). Add a matching `SoftwareApplication` block in the JSON-LD script if the app should show up in search rich results.
 
 ## Deploy on Cloudflare Pages
 

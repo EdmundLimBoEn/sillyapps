@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="tile" x1="160" y1="100" x2="830" y2="924" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#22c9d7"/>
+      <stop offset=".55" stop-color="#0891b2"/>
+      <stop offset="1" stop-color="#076581"/>
+    </linearGradient>
+    <linearGradient id="paper" x1="300" y1="370" x2="700" y2="744" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#def8fc"/>
+    </linearGradient>
+  </defs>
+  <rect x="100" y="112" width="824" height="824" rx="188" fill="#064b62" opacity=".12"/>
+  <rect x="100" y="100" width="824" height="824" rx="188" fill="url(#tile)"/>
+  <rect x="106" y="106" width="812" height="812" rx="182" fill="none" stroke="#ffffff" stroke-opacity=".22" stroke-width="12"/>
+  <rect x="318" y="276" width="438" height="354" rx="68" fill="#9eeaf2"/>
+  <rect x="248" y="370" width="484" height="390" rx="70" fill="#034f69" opacity=".18"/>
+  <rect x="242" y="350" width="484" height="390" rx="70" fill="url(#paper)"/>
+  <path d="M338 476H630M338 560H548M338 644H460" fill="none" stroke="#087c99" stroke-width="36" stroke-linecap="round"/>
+</svg>
