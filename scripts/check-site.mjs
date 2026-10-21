@@ -25,6 +25,11 @@ const required = [
   ["Stage Wand hosts", /Mac, Windows, Linux host/],
   ["Stage Wand remotes", /iPhone, Android remote/],
   ["Stage Wand JSON-LD OS", /"operatingSystem": "macOS, Windows, Linux, iOS, Android"/],
+  ["Snippets card", /<article id="snippets" class="app-card" data-app="snippets"/],
+  ["Snippets DMG", /https:\/\/github\.com\/EdmundLimBoEn\/snippets\/releases\/latest\/download\/Snippets\.dmg/],
+  ["Snippets source", /https:\/\/github\.com\/EdmundLimBoEn\/snippets"/],
+  ["Snippets download tip", /<dialog id="snippets-download"[\s\S]*hyperkey\.app[\s\S]*karabiner-elements/],
+  ["Snippets tip trigger", /showModal\(\)/],
   ["waitlist heading", /id="waitlist-heading">Join the waitlist</],
   ["waitlist form", /data-waitlist-form/],
   ["email field", /id="waitlist-email"/],
@@ -35,7 +40,7 @@ const required = [
   ["theme toggle", /data-theme-toggle/],
   ["theme script", /\/theme\.js/],
   ["share QR image", /<img src="\/assets\/sillyapps-qr\.svg"[^>]*alt="QR code linking to https:\/\/sillyapps\.co"/],
-  ["dark theme-color", /theme-color" content="#1A1511" media="\(prefers-color-scheme: dark\)"/],
+  ["dark theme-color", /theme-color" content="#0A0A0B" media="\(prefers-color-scheme: dark\)"/],
 ];
 
 const banned = [
@@ -76,12 +81,12 @@ const stageWandHrefs = [...stageWandCard[0].matchAll(/href="([^"]+)"/g)]
   .map((match) => match[1])
   .sort();
 const expectedStageWandHrefs = [
-  "#waitlist",
   "https://github.com/EdmundLimBoEn/stage-wand",
+  "https://github.com/EdmundLimBoEn/stage-wand/releases",
 ].sort();
 if (stageWandHrefs.join("|") !== expectedStageWandHrefs.join("|")) {
   console.error(
-    "Stage Wand card links must be waitlist and GitHub only:",
+    "Stage Wand card links must be GitHub releases and source only:",
     stageWandHrefs.join(", ") || "(none)",
   );
   process.exit(1);

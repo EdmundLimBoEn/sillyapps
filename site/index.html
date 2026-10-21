@@ -25,8 +25,8 @@
     <link rel="canonical" href="https://sillyapps.co/">
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
-    <meta name="theme-color" content="#F3E6D4" media="(prefers-color-scheme: light)">
-    <meta name="theme-color" content="#1A1511" media="(prefers-color-scheme: dark)">
+    <meta name="theme-color" content="#FAFAF9" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#0A0A0B" media="(prefers-color-scheme: dark)">
     <meta name="author" content="Edmund Lim">
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="Silly Apps">
@@ -61,9 +61,9 @@
             "@type": "SoftwareApplication",
             "name": "Lazy Man's Reminders",
             "applicationCategory": "UtilitiesApplication",
-            "operatingSystem": "iOS",
+            "operatingSystem": "iOS, Web",
             "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
-            "url": "https://sillyapps.co/"
+            "url": "https://lmr.sillyapps.co/"
           },
           {
             "@type": "SoftwareApplication",
@@ -97,210 +97,168 @@
     </script>
   </head>
   <body>
-    <a class="skip" href="#waitlist">Skip to waitlist</a>
+    <a class="skip" href="#main">Skip to content</a>
     <header class="site-header wrap">
-      <a class="wordmark" href="/">sillyapps</a>
-      <div class="header-tools">
+      <a class="wordmark" href="/" aria-label="sillyapps home"><svg class="wordmark-mark" viewBox="0 0 24 24" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="7" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="9" cy="10" r="1.3" fill="currentColor"/><circle cx="15" cy="10" r="1.3" fill="currentColor"/><path d="M8 14.5c1.2 1.6 2.6 2.3 4 2.3s2.8-.7 4-2.3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span>sillyapps</span></a>
+      <nav class="header-tools" aria-label="Primary">
         <p class="byline">
-          Edmund Lim
+          <a class="nav-hide-sm" href="#apps">Apps</a>
           <a class="header-waitlist" href="#waitlist">Waitlist</a>
+          <a class="nav-hide-sm" href="https://github.com/EdmundLimBoEn">GitHub</a>
         </p>
         <fieldset class="theme-toggle" data-theme-toggle>
           <legend>Color theme</legend>
-          <label><input type="radio" name="color-theme" value="system" checked> System</label>
+          <label><input type="radio" name="color-theme" value="system" checked> Auto</label>
           <label><input type="radio" name="color-theme" value="light"> Light</label>
           <label><input type="radio" name="color-theme" value="dark"> Dark</label>
         </fieldset>
-      </div>
+      </nav>
     </header>
 
-    <main>
-      <section class="hero wrap">
-        <h1>Small free apps.</h1>
-        <p>
-          A one-pager, not a store. Grab an app below, or join the waitlist.
-          I will email you when something is ready.
+    <main id="main">
+      <section class="hero wrap" aria-labelledby="hero-heading">
+        <p class="eyebrow">A tiny studio by Edmund Lim</p>
+        <h1 id="hero-heading">Small free apps, <em>taken slightly seriously.</em></h1>
+        <p class="hero-lead">
+          sillyapps makes little tools that each do one job: reminders on your
+          Lock Screen, AI usage on your Home Screen, and a phone that runs your slides.
+          Every one of them is free.
         </p>
-        <svg class="hero-rule" viewBox="0 0 280 12" fill="none" aria-hidden="true">
-          <path d="M1 8c28-8 54 6 82 0s52-8 82 0 54 6 82-4" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
-        </svg>
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="#apps">See the apps <span class="arrow" aria-hidden="true">→</span></a>
+          <a class="btn btn-ghost" href="#waitlist">Join the waitlist</a>
+        </div>
+        <ul class="hero-meta">
+          <li>Every app is free</li>
+          <li>iOS, web, Mac, Windows, Linux</li>
+          <li>Made by one person</li>
+        </ul>
       </section>
 
-      <section id="waitlist" class="waitlist wrap" aria-labelledby="waitlist-heading">
-        <form class="waitlist-card" data-waitlist-form novalidate>
-          <h2 id="waitlist-heading">Join the waitlist</h2>
-          <p class="waitlist-lead">
-            Leave an email. When an app ships, you get a note. Nothing else.
-          </p>
-
-          <label class="hp">
-            Company
-            <input type="text" name="company" tabindex="-1" autocomplete="off">
-          </label>
-
-          <div class="waitlist-fields">
-            <div class="field">
-              <label for="waitlist-name">Name <span class="optional">optional</span></label>
-              <input id="waitlist-name" name="name" type="text" maxlength="80" autocomplete="name">
-            </div>
-            <div class="field">
-              <label for="waitlist-email">Email</label>
-              <input id="waitlist-email" name="email" type="email" required autocomplete="email" inputmode="email" spellcheck="false">
-            </div>
+      <section id="apps" class="apps wrap" aria-labelledby="apps-heading">
+        <div class="apps-head">
+          <div>
+            <p class="eyebrow">The apps</p>
+            <h2 id="apps-heading" class="section-title">Four small things.</h2>
           </div>
-
-          <div class="waitlist-actions">
-            <button class="btn btn-primary waitlist-submit" type="submit">Join the waitlist</button>
-            <p class="privacy">Emails are only used to tell you when an app launches.</p>
-            <p class="form-status" data-waitlist-status role="status" aria-live="polite"></p>
-          </div>
-          <noscript>
-            <p class="privacy">JavaScript is off, so email hello@edmundlim.systems to join.</p>
-          </noscript>
-        </form>
-      </section>
-
-      <section id="apps" class="apps wrap" aria-label="Apps">
+          <p class="section-lead">Use what is live today. Join the waitlist for the rest.</p>
+        </div>
         <div class="app-grid">
-          <article class="app-card" data-app="lazy-mans-reminders" data-tone="calm">
-            <div class="app-top">
-              <svg class="icon" viewBox="0 0 72 72" aria-hidden="true">
-                <rect x="16" y="6" width="40" height="60" rx="8" fill="#3f6f62"/>
-                <rect x="20" y="12" width="32" height="48" rx="4" fill="#fff8ef"/>
-                <rect x="28" y="9" width="16" height="4" rx="2" fill="#ead7bf"/>
-                <rect x="24" y="20" width="24" height="5" rx="1.5" fill="#3f6f62"/>
-                <rect x="24" y="30" width="20" height="4" rx="1.5" fill="#c45c32"/>
-                <rect x="24" y="38" width="18" height="4" rx="1.5" fill="#e2d0b6"/>
-                <rect x="24" y="46" width="14" height="4" rx="1.5" fill="#e2d0b6"/>
-              </svg>
-              <div>
-                <p class="app-kicker">Free · iOS</p>
-                <h2>Lazy Man's Reminders</h2>
-              </div>
-              <span class="app-index" aria-hidden="true">01</span>
+          <article class="app-card" data-app="lazy-mans-reminders">
+            <div class="app-top"><svg class="icon" viewBox="0 0 48 48" aria-hidden="true"><rect width="48" height="48" rx="12" fill="var(--paper-2)" stroke="var(--line-strong)"/><rect x="15" y="10" width="18" height="28" rx="4" fill="none" stroke="var(--ink)" stroke-width="1.6"/><path d="M19 18h10M19 23h7M19 28h5" stroke="var(--accent)" stroke-width="1.6" stroke-linecap="round"/></svg><span class="app-index" aria-hidden="true">01</span></div>
+            <div>
+              <h3>Lazy Man's Reminders</h3>
+              <p class="pitch">Reminders that live on your Lock Screen.</p>
             </div>
-            <p class="blurb">
-              Reminders that sit on your Lock Screen, with Live Activities.
-              Calm, useful, and a little cheeky. Built for people who will not
-              open another list app.
+            <p class="blurb">Live Activities keep today's list in view, so you never open another list app. Calm, useful, and a little cheeky.</p>
+            <ul class="notes" aria-label="Platforms"><li>iOS</li><li>Web</li><li>Free</li></ul>
+            <p class="cta-row">
+              <a class="btn btn-primary" href="https://lmr.sillyapps.co">Open the web app <span class="arrow" aria-hidden="true">→</span></a>
+              <a class="btn btn-ghost" href="#waitlist">iOS waitlist</a>
             </p>
-            <ul class="notes">
-              <li>Lock Screen</li>
-              <li>Live Activities</li>
-              <li>Reminders</li>
-            </ul>
+          </article>
+
+          <article class="app-card" data-app="usagewidget">
+            <div class="app-top"><svg class="icon" viewBox="0 0 48 48" aria-hidden="true"><rect width="48" height="48" rx="12" fill="var(--paper-2)" stroke="var(--line-strong)"/><rect x="10" y="13" width="28" height="22" rx="6" fill="none" stroke="var(--ink)" stroke-width="1.6"/><path d="M15 20h12M15 24.5h18M15 29h8" stroke="var(--accent)" stroke-width="2" stroke-linecap="round"/></svg><span class="app-index" aria-hidden="true">02</span></div>
+            <div>
+              <h3>UsageWidget</h3>
+              <p class="pitch">Your leftover AI usage, as a Home Screen widget.</p>
+            </div>
+            <p class="blurb">Cursor, Codex, Claude, and the rest, as quiet bars on your phone. You host it; the phone only shows the numbers.</p>
+            <ul class="notes" aria-label="Platforms"><li>iOS 26+</li><li>Self-hosted</li><li>Free</li></ul>
             <p class="cta-row">
               <a class="btn btn-primary" href="#waitlist">Join the waitlist</a>
             </p>
           </article>
 
-          <article class="app-card" data-app="usagewidget" data-tone="utility">
-            <div class="app-top">
-              <svg class="icon" viewBox="0 0 72 72" aria-hidden="true">
-                <rect x="8" y="14" width="56" height="44" rx="10" fill="#3a4a7a"/>
-                <rect x="14" y="24" width="28" height="6" rx="2" fill="#fff8ef"/>
-                <rect x="14" y="36" width="44" height="6" rx="2" fill="#7f92c9"/>
-                <rect x="14" y="46" width="34" height="6" rx="2" fill="#c45c32"/>
-              </svg>
-              <div>
-                <p class="app-kicker">Free · iOS 26+</p>
-                <h2>UsageWidget</h2>
-              </div>
-              <span class="app-index" aria-hidden="true">02</span>
+          <article class="app-card" data-app="stage-wand">
+            <div class="app-top"><svg class="icon" viewBox="0 0 48 48" aria-hidden="true"><rect width="48" height="48" rx="12" fill="var(--paper-2)" stroke="var(--line-strong)"/><rect x="12" y="11" width="14" height="26" rx="3.5" fill="none" stroke="var(--ink)" stroke-width="1.6"/><path d="M30 20l6-6M33 14h3v3" fill="none" stroke="var(--accent)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="19" cy="32" r="1.2" fill="var(--ink)"/></svg><span class="app-index" aria-hidden="true">03</span></div>
+            <div>
+              <h3>Stage Wand</h3>
+              <p class="pitch">Your phone, as a presenter remote and trackpad.</p>
             </div>
-            <p class="blurb">
-              A Home Screen widget for leftover AI usage. Cursor, Codex,
-              Claude, and the rest, as bars on your phone. You host it. The
-              phone only shows the numbers.
-            </p>
-            <ul class="notes">
-              <li>Home Screen widget</li>
-              <li>Self-hosted</li>
-              <li>AI usage bars</li>
-            </ul>
+            <p class="blurb">Volume buttons move slides. Unlock the square for pointer, click, and scroll on a Mac, Windows, or Linux host.</p>
+            <ul class="notes" aria-label="Platforms"><li>Mac, Windows, Linux host</li><li>iPhone, Android remote</li><li>Open source</li></ul>
             <p class="cta-row">
-              <a class="btn btn-primary" href="#waitlist">Join the waitlist</a>
-            </p>
-          </article>
-
-          <article class="app-card" data-app="stage-wand" data-tone="stage">
-            <div class="app-top">
-              <svg class="icon" viewBox="0 0 72 72" aria-hidden="true">
-                <rect x="12" y="10" width="30" height="52" rx="8" fill="#241c14"/>
-                <rect x="16" y="16" width="22" height="36" rx="3" fill="#fff8ef"/>
-                <rect x="20" y="22" width="14" height="5" rx="1.5" fill="#c45c32"/>
-                <rect x="20" y="31" width="10" height="4" rx="1.5" fill="#e2d0b6"/>
-                <circle cx="27" cy="56" r="2" fill="#ead7bf"/>
-                <circle cx="54" cy="20" r="10" fill="#c45c32"/>
-                <circle cx="54" cy="20" r="4" fill="#fff8ef"/>
-                <rect x="52" y="30" width="4" height="24" rx="2" fill="#c45c32"/>
-              </svg>
-              <div>
-                <p class="app-kicker">Free · Mac, Windows, Linux · iPhone, Android</p>
-                <h2>Stage Wand</h2>
-              </div>
-              <span class="app-index" aria-hidden="true">03</span>
-            </div>
-            <p class="blurb">
-              Turn an iPhone or Android phone into a pocket clicker and a
-              trackpad for a Mac, Windows, or Linux host. Volume buttons move
-              slides. Unlock the square for pointer, click, scroll, and spaces.
-            </p>
-            <ul class="notes">
-              <li>Mac, Windows, Linux host</li>
-              <li>iPhone, Android remote</li>
-              <li>Open source</li>
-            </ul>
-            <p class="cta-row">
-              <a class="btn btn-primary" href="#waitlist">Join the waitlist</a>
+              <a class="btn btn-primary" href="https://github.com/EdmundLimBoEn/stage-wand/releases">Download for Mac <span class="arrow" aria-hidden="true">→</span></a>
               <a class="btn btn-ghost" href="https://github.com/EdmundLimBoEn/stage-wand">Source on GitHub</a>
             </p>
           </article>
-
-          <article id="snippets" class="app-card" data-app="snippets" data-tone="utility">
-            <div class="app-top">
-              <img class="icon" src="/assets/snippets.svg" width="54" height="54" alt="" loading="lazy">
-              <div>
-                <p class="app-kicker">Free · macOS 26+</p>
-                <h2>Snippets</h2>
-              </div>
-              <span class="app-index" aria-hidden="true">04</span>
+          <article id="snippets" class="app-card" data-app="snippets">
+            <div class="app-top"><svg class="icon" viewBox="0 0 48 48" aria-hidden="true"><rect width="48" height="48" rx="12" fill="var(--paper-2)" stroke="var(--line-strong)"/><rect x="18" y="11" width="19" height="15" rx="3.5" fill="none" stroke="var(--faint)" stroke-width="1.6"/><rect x="11" y="17" width="21" height="20" rx="4" fill="var(--paper-2)" stroke="var(--ink)" stroke-width="1.6"/><path d="M16 24h11M16 28.5h8M16 33h5" stroke="var(--accent)" stroke-width="1.6" stroke-linecap="round"/></svg><span class="app-index" aria-hidden="true">04</span></div>
+            <div>
+              <h3>Snippets</h3>
+              <p class="pitch">Saved snippets, one Hyper key away.</p>
             </div>
-            <p class="blurb">
-              Snippets — a macOS menu bar app. Press Hyper (caps lock) + a key
-              to paste a saved snippet (text, rich text or images) into any field;
-              keys with several snippets show a numbered picker. Clipboard is
-              restored after every paste. Free, open source, auto-updates.
-            </p>
-            <ul class="notes">
-              <li>macOS 26+</li>
-              <li>Accessibility permission for pasting</li>
-            </ul>
+            <p class="blurb">A macOS menu bar app. Press Hyper (caps lock) + a key to paste text, rich text, or images into any field. Several snippets on one key get a numbered picker, and your clipboard is restored after every paste. Open source, auto-updates.</p>
+            <ul class="notes" aria-label="Platforms"><li>macOS 26+</li><li>Menu bar</li><li>Open source</li></ul>
             <p class="cta-row">
-              <a class="btn btn-primary" href="https://github.com/EdmundLimBoEn/snippets/releases/latest/download/Snippets.dmg" onclick="document.getElementById('snippets-download').showModal()">Download for Mac</a>
+              <a class="btn btn-primary" href="https://github.com/EdmundLimBoEn/snippets/releases/latest/download/Snippets.dmg" onclick="document.getElementById('snippets-download').showModal()">Download for Mac <span class="arrow" aria-hidden="true">→</span></a>
               <a class="btn btn-ghost" href="https://github.com/EdmundLimBoEn/snippets">Source on GitHub</a>
             </p>
+            <p class="card-note">Needs Accessibility permission to paste.</p>
           </article>
+        </div>
+      </section>
+
+      <section id="waitlist" class="waitlist wrap" aria-labelledby="waitlist-heading">
+        <div class="waitlist-panel">
+          <div>
+            <p class="eyebrow">Waitlist</p>
+            <h2 class="section-title" id="waitlist-heading">Join the waitlist</h2>
+            <p class="section-lead">Leave an email. When an app ships, you get one short note. Nothing else.</p>
+          </div>
+          <form class="waitlist-card" data-waitlist-form novalidate>
+            <label class="hp" aria-hidden="true">
+              Company
+              <input type="text" name="company" tabindex="-1" autocomplete="off">
+            </label>
+            <div class="waitlist-fields">
+              <div class="field">
+                <label for="waitlist-name">Name <span class="optional">(optional)</span></label>
+                <input id="waitlist-name" name="name" type="text" maxlength="80" autocomplete="name" placeholder="Ada">
+              </div>
+              <div class="field">
+                <label for="waitlist-email">Email</label>
+                <input id="waitlist-email" name="email" type="email" required autocomplete="email" inputmode="email" spellcheck="false" placeholder="you@example.com">
+              </div>
+            </div>
+            <div class="waitlist-actions">
+              <button class="btn btn-primary waitlist-submit" type="submit">Join the waitlist</button>
+              <p class="privacy">Emails are only used to tell you when an app launches.</p>
+              <p class="form-status" data-waitlist-status role="status" aria-live="polite"></p>
+            </div>
+            <noscript>
+              <p class="privacy">JavaScript is off, so email hello@[REDACTED].systems to join.</p>
+            </noscript>
+          </form>
         </div>
       </section>
     </main>
 
     <footer class="site-footer">
       <div class="wrap">
+        <div class="footer-brand">
+          <a class="wordmark" href="/"><svg class="wordmark-mark" viewBox="0 0 24 24" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="7" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="9" cy="10" r="1.3" fill="currentColor"/><circle cx="15" cy="10" r="1.3" fill="currentColor"/><path d="M8 14.5c1.2 1.6 2.6 2.3 4 2.3s2.8-.7 4-2.3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span>sillyapps</span></a>
+          <p>Small free apps by Edmund Lim.</p>
+          <ul class="footer-links">
+            <li><a href="mailto:hello@[REDACTED].systems">hello@[REDACTED].systems</a></li>
+            <li><a href="https://github.com/EdmundLimBoEn">GitHub</a></li>
+            <li><a href="#waitlist">Waitlist</a></li>
+          </ul>
+        </div>
         <figure class="share-qr">
-          <img src="/assets/sillyapps-qr.svg" width="112" height="112" alt="QR code linking to https://sillyapps.co" loading="lazy">
-          <figcaption>Share sillyapps.co</figcaption>
+          <img src="/assets/sillyapps-qr.svg" width="96" height="96" alt="QR code linking to https://sillyapps.co" loading="lazy">
+          <figcaption><strong>Share sillyapps.co</strong>Point a camera here.</figcaption>
         </figure>
-        <p>sillyapps.co · small free apps · Edmund Lim</p>
-        <p><a href="mailto:hello@edmundlim.systems">hello@edmundlim.systems</a></p>
       </div>
     </footer>
-    <dialog id="snippets-download" class="download-note">
+    <dialog id="snippets-download" class="download-note" aria-labelledby="snippets-download-title">
       <form method="dialog">
-        <h2>Wait!</h2>
-        <p>We advise you use <a href="https://hyperkey.app" target="_blank" rel="noopener">Hyperkey</a> or <a href="https://karabiner-elements.pqrs.org" target="_blank" rel="noopener">Karabiner-Elements</a> with this app.</p>
+        <p class="eyebrow">Your download has started</p>
+        <h2 id="snippets-download-title">One tip before you go</h2>
+        <p>Snippets works best with <a href="https://hyperkey.app" target="_blank" rel="noopener">Hyperkey</a> or <a href="https://karabiner-elements.pqrs.org" target="_blank" rel="noopener">Karabiner-Elements</a>, which turn caps lock into a Hyper key.</p>
         <button class="btn btn-primary">Got it</button>
-        <small>Your download has started.</small>
       </form>
     </dialog>
     <script src="/theme.js"></script>
