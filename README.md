@@ -109,7 +109,7 @@ Copy an `<article class="app-card">` in `site/index.html`. Keep the same fields:
 
 - `data-app` as a stable id
 - no per-app accent colour; cards are monochrome by design
-- kicker, name, blurb, notes
+- name, one-line `pitch`, blurb, platform badges (`notes`)
 - a primary download button for apps with a release link, or a waitlist button that points at `#waitlist`
 - an optional `btn-ghost` GitHub link when the source is public
 
