@@ -1,6 +1,6 @@
 const STORAGE_KEY = "sillyapps-theme";
-const LIGHT_THEME_COLOR = "#F3E6D4";
-const DARK_THEME_COLOR = "#1A1511";
+const LIGHT_THEME_COLOR = "#FAFAF9";
+const DARK_THEME_COLOR = "#0A0A0B";
 
 function readPreference() {
   try {

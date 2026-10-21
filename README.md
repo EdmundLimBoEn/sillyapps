@@ -108,8 +108,8 @@ curl -fsS -X DELETE -H "Authorization: Bearer $WAITLIST_ADMIN_TOKEN" \
 Copy an `<article class="app-card">` in `site/index.html`. Keep the same fields:
 
 - `data-app` as a stable id
-- `data-tone` as `calm`, `utility`, or `stage` (top border color)
-- kicker, name, blurb, notes
+- no per-app accent colour; cards are monochrome by design
+- name, one-line `pitch`, blurb, platform badges (`notes`)
 - a primary download button for apps with a release link, or a waitlist button that points at `#waitlist`
 - an optional `btn-ghost` GitHub link when the source is public
 
