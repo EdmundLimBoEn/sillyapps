@@ -69,7 +69,9 @@ CSV columns are `email,name,created_at,emailed,note`. `emailed` is `1` or `0`. J
 
 The board is at [https://sillyapps.co/admin](https://sillyapps.co/admin). It is not linked from the home page. Use the same `WAITLIST_ADMIN_TOKEN`. Do not add another secret.
 
-Paste the token on `/admin`. A successful login sets an HttpOnly `waitlist_admin` cookie (`SameSite=Strict`, `Secure` on HTTPS). The board can search, filter by date, export CSV or JSON, toggle **emailed**, edit a note, and delete a row. Logout clears the cookie.
+Paste the token on `/admin`. A successful login sets an HttpOnly `waitlist_admin` cookie (`SameSite=Strict`, `Secure`, `Path=/`) containing a random 32-byte session ID. Only its SHA-256 hash is stored in D1, with a 12-hour expiry. The board can search, filter by date, export CSV or JSON, toggle **emailed**, edit a note, and delete a row. Logout deletes the session from D1 and clears the cookie. Expired sessions are cleaned up on login and logout. Existing token cookies are rejected; log in again.
+
+Cookie login requires `migrations/0003_admin_sessions.sql`. Session timestamps are Unix milliseconds. Bearer-token API access remains available.
 
 Public signup is unchanged. The form still POSTs JSON to `/api/waitlist`. A filled honeypot is dropped. Production also caps POSTs per client IP (8 per 10 minutes, best-effort per isolate). Repeat emails stay one row.
 
@@ -83,7 +85,7 @@ npx wrangler d1 migrations apply sillyapps-waitlist --remote
 
 That runs `migrations/0002_waitlist_admin_fields.sql`. Existing rows stay. `emailed` defaults to `0`. `note` is empty. If Wrangler reports no pending migrations, the columns are already on the remote database.
 
-If the code deploys before the migration, the board can still list, search, export, and delete. Toggles and notes wait until the migration runs.
+The bearer-token API can still list, search, export, and delete before migration 0002. Toggles and notes require migration 0002; browser login requires migration 0003.
 
 Admin API (same token as export):
 
