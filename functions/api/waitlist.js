@@ -67,7 +67,7 @@ export async function onRequestPost(context) {
 }
 
 export async function onRequestGet(context) {
-  const gate = requireAdmin(context.request, context.env);
+  const gate = await requireAdmin(context.request, context.env);
   if (!gate.ok) {
     return gate.response;
   }
@@ -106,7 +106,7 @@ export async function onRequestGet(context) {
 }
 
 export async function onRequestPatch(context) {
-  const gate = requireAdmin(context.request, context.env);
+  const gate = await requireAdmin(context.request, context.env);
   if (!gate.ok) {
     return gate.response;
   }
@@ -161,7 +161,7 @@ export async function onRequestPatch(context) {
 }
 
 export async function onRequestDelete(context) {
-  const gate = requireAdmin(context.request, context.env);
+  const gate = await requireAdmin(context.request, context.env);
   if (!gate.ok) {
     return gate.response;
   }

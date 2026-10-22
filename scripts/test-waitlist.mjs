@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 import {
   onRequestDelete,
@@ -29,6 +30,7 @@ function request(url, init) {
 
 function memoryDb(options = {}) {
   const rows = new Map();
+  const sessions = new Map();
   const missingAdminColumns = Boolean(options.missingAdminColumns);
 
   function asRow(row) {
@@ -48,6 +50,22 @@ function memoryDb(options = {}) {
         return statement(sql, args);
       },
       async run() {
+        if (text.includes("admin_sessions")) {
+          if (text.startsWith("INSERT")) {
+            const [session_hash, created_at, expires_at] = bound;
+            assert.equal(sessions.has(session_hash), false);
+            sessions.set(session_hash, { session_hash, created_at, expires_at });
+          } else if (text.includes("session_hash = ?")) {
+            sessions.delete(bound[0]);
+          } else if (text.includes("expires_at <= ?")) {
+            for (const [hash, row] of sessions) {
+              if (row.expires_at <= bound[0]) sessions.delete(hash);
+            }
+          } else {
+            throw new Error("Unexpected session SQL");
+          }
+          return { success: true };
+        }
         if (text.includes("INSERT")) {
           const [email, name] = bound;
           if (!rows.has(email)) {
@@ -96,6 +114,11 @@ function memoryDb(options = {}) {
         return { results: list };
       },
       async first() {
+        if (text.includes("admin_sessions")) {
+          const row = sessions.get(bound[0]);
+          const unexpired = !text.includes("expires_at > ?") || row?.expires_at > bound[1];
+          return row && unexpired ? row : null;
+        }
         if (missingAdminColumns && text.includes("emailed")) {
           throw new Error("no such column: emailed");
         }
@@ -107,6 +130,7 @@ function memoryDb(options = {}) {
 
   return {
     rows,
+    sessions,
     prepare(sql) {
       return statement(sql);
     },
@@ -136,6 +160,20 @@ function withBearer(init = {}) {
       ...(init.headers || {}),
     },
   };
+}
+
+async function loginSession(env, url = "https://sillyapps.co/api/waitlist/session") {
+  const res = await onSessionPost({
+    request: request(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token: env.WAITLIST_ADMIN_TOKEN }),
+    }),
+    env,
+  });
+  assert.equal(res.status, 200);
+  const cookie = res.headers.get("set-cookie");
+  return { cookie, id: decodeURIComponent(cookie.split(";")[0].split("=")[1]) };
 }
 
 test("parseSignup lowercases and trims email", () => {
@@ -508,6 +546,104 @@ test("session login sets an HttpOnly cookie that can list rows", async () => {
   assert.match(logout.headers.get("set-cookie"), /Max-Age=0/);
 });
 
+test("session cookie contains a random id and D1 stores only its hash for 12 hours", async () => {
+  const db = memoryDb();
+  const env = adminEnv(db);
+  const before = Date.now();
+  const { cookie, id } = await loginSession(env);
+  assert.equal(cookie.includes(env.WAITLIST_ADMIN_TOKEN), false);
+  assert.match(id, /^[a-f0-9]{64}$/);
+  assert.match(cookie, /HttpOnly/);
+  assert.match(cookie, /Secure/);
+  assert.match(cookie, /SameSite=Strict/);
+  assert.match(cookie, /Path=\/(?:;|$)/);
+  const hash = createHash("sha256").update(id).digest("hex");
+  assert.equal(db.sessions.size, 1);
+  const row = db.sessions.get(hash);
+  assert.deepEqual(Object.keys(row).sort(), ["created_at", "expires_at", "session_hash"]);
+  assert.ok(row.created_at >= before && row.created_at <= Date.now());
+  assert.equal(row.expires_at - row.created_at, 12 * 60 * 60 * 1000);
+  assert.notEqual(hash, id);
+  const second = await loginSession(env, "http://localhost/api/waitlist/session");
+  assert.notEqual(second.id, id);
+  assert.match(second.cookie, /Secure/);
+  assert.equal(db.sessions.size, 2);
+});
+
+for (const state of ["valid", "logged out", "expired", "legacy token", "unknown id"]) {
+  test(`admin routes enforce ${state} sessions`, async (t) => {
+    const db = memoryDb();
+    const env = adminEnv(db);
+    const now = Date.now();
+    t.mock.method(Date, "now", () => now);
+    const { id } = await loginSession(env);
+    if (state === "logged out") {
+      const logout = await onSessionDelete({
+        request: authRequest("DELETE", "/session", id, "", true), env,
+      });
+      assert.equal(logout.status, 200);
+      assert.match(logout.headers.get("set-cookie"), /Max-Age=0/);
+      assert.equal(db.sessions.size, 0);
+    }
+    if (state === "expired") {
+      t.mock.method(Date, "now", () => now + 12 * 60 * 60 * 1000 - 1);
+      const probe = await onSessionGet({ request: authRequest("GET", "/session", id, "", true), env });
+      assert.equal(probe.status, 200);
+      t.mock.method(Date, "now", () => now + 12 * 60 * 60 * 1000);
+    }
+    const credential = state === "legacy token" ? env.WAITLIST_ADMIN_TOKEN :
+      state === "unknown id" ? "0".repeat(64) : id;
+    for (const [method, suffix, handler] of adminRoutes.filter(([method]) => method !== "POST")) {
+      seed(db, [{ email: "ada@example.com" }]);
+      const res = await handler({ request: authRequest(method, suffix, credential, "", true), env });
+      assert.equal(res.status, state === "valid" ? 200 : 401);
+      if (state !== "valid") assert.equal(db.rows.get("ada@example.com").emailed, 0);
+    }
+  });
+}
+
+test("login cleans up expired sessions without deleting live sessions", async (t) => {
+  const db = memoryDb();
+  const env = adminEnv(db);
+  const now = Date.now();
+  t.mock.method(Date, "now", () => now);
+  const old = await loginSession(env);
+  t.mock.method(Date, "now", () => now + 6 * 60 * 60 * 1000);
+  const live = await loginSession(env);
+  t.mock.method(Date, "now", () => now + 12 * 60 * 60 * 1000);
+  await loginSession(env);
+  assert.equal(db.sessions.size, 2);
+  assert.equal(db.sessions.has(createHash("sha256").update(old.id).digest("hex")), false);
+  const probe = await onSessionGet({ request: authRequest("GET", "/session", live.id, "", true), env });
+  assert.equal(probe.status, 200);
+});
+
+test("logout revokes only the supplied session", async () => {
+  const env = adminEnv(memoryDb());
+  const first = await loginSession(env);
+  const second = await loginSession(env);
+  const logout = await onSessionDelete({
+    request: authRequest("DELETE", "/session", first.id, "", true), env,
+  });
+  assert.equal(logout.status, 200);
+  assert.equal(env.DB.sessions.size, 1);
+  const probe = await onSessionGet({ request: authRequest("GET", "/session", second.id, "", true), env });
+  assert.equal(probe.status, 200);
+});
+
+test("session database failures deny access and do not report successful login or logout", async () => {
+  const env = adminEnv(memoryDb());
+  const { id } = await loginSession(env);
+  env.DB = { prepare() { throw new Error("database unavailable"); } };
+  for (const [method, handler] of [["POST", onSessionPost], ["GET", onSessionGet], ["DELETE", onSessionDelete]]) {
+    const res = await handler({
+      request: authRequest(method, "/session", method === "POST" ? env.WAITLIST_ADMIN_TOKEN : id, "", true), env,
+    });
+    assert.equal(res.status, 503);
+    assert.equal(res.headers.has("set-cookie"), false);
+  }
+});
+
 test("session login rejects a bad token", async () => {
   const res = await onSessionPost({
     request: request("https://sillyapps.co/api/waitlist/session", {
@@ -548,6 +684,7 @@ for (const [index, [method, suffix, handler]] of adminRoutes.entries()) {
     test(`${method} ${suffix || "waitlist"} counts only failed auth (${cookie ? "cookie" : "bearer"})`, async (t) => {
       const db = memoryDb();
       const env = adminEnv(db);
+      const valid = cookie && method !== "POST" ? (await loginSession(env)).id : env.WAITLIST_ADMIN_TOKEN;
       const ip = `198.51.${index}.${cookie ? 1 : 2}`;
       const call = async (token, address = ip) => {
         seed(db, [{ email: "ada@example.com" }]);
@@ -555,9 +692,9 @@ for (const [index, [method, suffix, handler]] of adminRoutes.entries()) {
       };
       for (let i = 0; i < 20; i++) {
         assert.equal((await call("bad")).status, 401);
-        if (i < 19) assert.equal((await call(env.WAITLIST_ADMIN_TOKEN)).status, 200);
+        if (i < 19) assert.equal((await call(valid)).status, 200);
       }
-      assert.equal((await call(env.WAITLIST_ADMIN_TOKEN)).status, 429);
+      assert.equal((await call(valid)).status, 429);
       assert.equal((await call("bad")).status, 429);
       // All authentication paths share the same failed-attempt bucket.
       for (const [otherMethod, otherSuffix, otherHandler] of adminRoutes) {
@@ -565,24 +702,24 @@ for (const [index, [method, suffix, handler]] of adminRoutes.entries()) {
           request: authRequest(otherMethod, otherSuffix, env.WAITLIST_ADMIN_TOKEN, ip, !cookie), env,
         })).status, 429);
       }
-      assert.equal((await call(env.WAITLIST_ADMIN_TOKEN, `${ip}0`)).status, 200);
+      assert.equal((await call(valid, `${ip}0`)).status, 200);
       const now = Date.now();
       t.mock.method(Date, "now", () => now + 10 * 60 * 1000);
-      assert.equal((await call(env.WAITLIST_ADMIN_TOKEN)).status, 200);
+      assert.equal((await call(valid)).status, 200);
     });
   }
 }
 
 test("admin tokens accept 512 characters and reject 513 even when matching configuration", async () => {
-  for (const length of [512, 513]) {
-    const token = "x".repeat(length);
+  for (const length of [64, 512, 513]) {
+    const token = "a".repeat(length);
     const db = memoryDb();
     const env = { DB: db, WAITLIST_ADMIN_TOKEN: token };
     for (const [method, suffix, handler] of adminRoutes) {
       for (const cookie of [false, true]) {
         seed(db, [{ email: "ada@example.com" }]);
         const res = await handler({ request: authRequest(method, suffix, token, "", cookie), env });
-        assert.equal(res.status, length === 512 ? 200 : 401);
+        assert.equal(res.status, length <= 512 && (!cookie || method === "POST") ? 200 : 401);
       }
     }
   }

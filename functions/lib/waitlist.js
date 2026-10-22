@@ -6,6 +6,7 @@ const MAX_BODY_BYTES = 8 * 1024;
 const MAX_TOKEN_LENGTH = 512;
 const MAX_RATE_KEYS = 10000;
 const ADMIN_COOKIE = "waitlist_admin";
+const SESSION_LIFETIME_MS = 12 * 60 * 60 * 1000;
 const POST_LIMIT = 8;
 const POST_WINDOW_MS = 10 * 60 * 1000;
 const LOGIN_LIMIT = 20;
@@ -298,43 +299,63 @@ export function readCookie(request, name) {
   return "";
 }
 
-export function readAdminToken(request) {
-  const header = request.headers.get("authorization") || "";
-  if (header.startsWith("Bearer ")) {
-    return header.slice(7);
-  }
-  return readCookie(request, ADMIN_COOKIE);
+function hex(bytes) {
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-export function sessionCookie(token, secure) {
+async function sessionHash(id) {
+  return hex(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(id))));
+}
+
+function readSessionId(request) {
+  const id = readCookie(request, ADMIN_COOKIE);
+  return /^[a-f0-9]{64}$/.test(id) ? id : "";
+}
+
+async function cleanExpiredSessions(db) {
+  await db.prepare("DELETE FROM admin_sessions WHERE expires_at <= ?").bind(Date.now()).run();
+}
+
+export async function createAdminSession(db) {
+  const id = hex(crypto.getRandomValues(new Uint8Array(32)));
+  const now = Date.now();
+  await cleanExpiredSessions(db);
+  await db.prepare(
+    "INSERT INTO admin_sessions (session_hash, created_at, expires_at) VALUES (?, ?, ?)"
+  ).bind(await sessionHash(id), now, now + SESSION_LIFETIME_MS).run();
+  return id;
+}
+
+export async function deleteAdminSession(request, db) {
+  const id = readSessionId(request);
+  if (id) {
+    await db.prepare("DELETE FROM admin_sessions WHERE session_hash = ?")
+      .bind(await sessionHash(id)).run();
+  }
+  await cleanExpiredSessions(db);
+}
+
+export function sessionCookie(id) {
   const parts = [
-    `${ADMIN_COOKIE}=${encodeURIComponent(token)}`,
+    `${ADMIN_COOKIE}=${encodeURIComponent(id)}`,
     "HttpOnly",
+    "Secure",
     "SameSite=Strict",
     "Path=/",
   ];
-  if (secure) {
-    parts.push("Secure");
-  }
   return parts.join("; ");
 }
 
-export function clearSessionCookie(secure) {
+export function clearSessionCookie() {
   const parts = [
     `${ADMIN_COOKIE}=`,
     "HttpOnly",
+    "Secure",
     "SameSite=Strict",
     "Path=/",
     "Max-Age=0",
   ];
-  if (secure) {
-    parts.push("Secure");
-  }
   return parts.join("; ");
-}
-
-export function requestIsHttps(request) {
-  return new URL(request.url).protocol === "https:";
 }
 
 export function clientIp(request) {
@@ -367,7 +388,7 @@ export function loginRateLimited(request) {
   return hitLimit("login", clientIp(request), LOGIN_LIMIT, LOGIN_WINDOW_MS, false);
 }
 
-export function requireAdmin(request, env, token) {
+export async function requireAdmin(request, env, token) {
   const want = env.WAITLIST_ADMIN_TOKEN;
   if (!want) {
     return { ok: false, response: new Response(null, { status: 404 }) };
@@ -375,8 +396,23 @@ export function requireAdmin(request, env, token) {
   if (loginRateLimited(request)) {
     return { ok: false, response: jsonResponse(429, { ok: false, error: "rate_limited" }) };
   }
-  const got = token === undefined ? readAdminToken(request) : token;
-  if (!tokensMatch(got, want)) {
+  const header = request.headers.get("authorization") || "";
+  let authenticated = false;
+  if (token !== undefined || header.startsWith("Bearer ")) {
+    authenticated = tokensMatch(token === undefined ? header.slice(7) : token, want);
+  } else {
+    const id = readSessionId(request);
+    if (id) {
+      try {
+        authenticated = Boolean(await env.DB.prepare(
+          "SELECT session_hash FROM admin_sessions WHERE session_hash = ? AND expires_at > ?"
+        ).bind(await sessionHash(id), Date.now()).first());
+      } catch {
+        return { ok: false, response: jsonResponse(503, { ok: false, error: "unavailable" }) };
+      }
+    }
+  }
+  if (!authenticated) {
     hitLimit("login", clientIp(request), LOGIN_LIMIT, LOGIN_WINDOW_MS);
     return { ok: false, response: jsonResponse(401, { ok: false, error: "unauthorized" }) };
   }
