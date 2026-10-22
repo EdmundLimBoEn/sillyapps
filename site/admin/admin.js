@@ -60,6 +60,17 @@ function showLogin() {
   boardView.hidden = true;
   logoutBtn.hidden = true;
   bearer = "";
+  adminFields = true;
+  rowsEl.replaceChildren();
+  countEl.textContent = "";
+  sparkLine.setAttribute("points", "");
+  sparkEl.hidden = true;
+  emptyEl.hidden = true;
+  migrationBanner.hidden = true;
+  filtersForm.reset();
+  loginForm.reset();
+  setStatus(boardStatus, "", "");
+  setStatus(loginStatus, "", "");
 }
 
 function showBoard() {
@@ -274,9 +285,16 @@ loginForm.addEventListener("submit", async (event) => {
 });
 
 logoutBtn.addEventListener("click", async () => {
-  await api("/api/waitlist/session", { method: "DELETE" });
-  showLogin();
-  setStatus(loginStatus, "ok", "Logged out.");
+  try {
+    const res = await api("/api/waitlist/session", { method: "DELETE" });
+    if (!res.ok) {
+      throw new Error("Logout failed");
+    }
+    showLogin();
+    setStatus(loginStatus, "ok", "Logged out.");
+  } catch {
+    setStatus(boardStatus, "err", "Could not log out. Please try again.");
+  }
 });
 
 filtersForm.addEventListener("submit", async (event) => {
