@@ -23,7 +23,7 @@ npx wrangler pages dev
 
 That serves on [http://127.0.0.1:8788](http://127.0.0.1:8788) by default. Open `/admin` and paste `dev-waitlist-token` from `.dev.vars`. Local D1 uses the `database_id` in `wrangler.jsonc`. That is enough for `wrangler pages dev`.
 
-Checks:
+Checks (Node.js and Python 3 with SQLite are required for the regression tests):
 
 ```sh
 node scripts/check-site.mjs
@@ -73,7 +73,7 @@ Paste the token on `/admin`. A successful login sets an HttpOnly `waitlist_admin
 
 Cookie login requires `migrations/0003_admin_sessions.sql`. Session timestamps are Unix milliseconds. Bearer-token API access remains available.
 
-Public signup is unchanged. The form still POSTs JSON to `/api/waitlist`. A filled honeypot is dropped. Production also caps POSTs per client IP (8 per 10 minutes, best-effort per isolate). Repeat emails stay one row.
+Public signup is unchanged. The form still POSTs JSON to `/api/waitlist`. A filled honeypot is dropped. Production also caps POSTs per client IP (8 per fixed 10-minute window, shared through D1). Repeat emails stay one row. Admin authentication allows 20 failed attempts per fixed 10-minute window. Both limits require `migrations/0004_rate_limits.sql`, store only purpose-prefixed SHA-256 IP hashes, and clean up windows older than a day during requests. Limiter database errors allow signup to proceed but deny admin access with 503.
 
 ### Apply the emailed and note columns
 

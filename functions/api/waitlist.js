@@ -28,7 +28,7 @@ function getDb(context) {
 }
 
 export async function onRequestPost(context) {
-  if (postRateLimited(context.request)) {
+  if (await postRateLimited(context.request, context.env.DB)) {
     return jsonResponse(429, { ok: false, error: "rate_limited" });
   }
 
