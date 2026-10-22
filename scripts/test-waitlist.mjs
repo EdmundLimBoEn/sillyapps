@@ -519,3 +519,138 @@ test("session login rejects a bad token", async () => {
   });
   assert.equal(res.status, 401);
 });
+
+const adminRoutes = [
+  ["GET", "", onRequestGet],
+  ["PATCH", "", onRequestPatch],
+  ["DELETE", "", onRequestDelete],
+  ["GET", "/session", onSessionGet],
+  ["POST", "/session", onSessionPost],
+];
+
+function authRequest(method, suffix, token, ip, cookie = false) {
+  return request(`https://sillyapps.co/api/waitlist${suffix}`, {
+    method,
+    headers: {
+      "cf-connecting-ip": ip,
+      "content-type": "application/json",
+      ...(cookie ? { cookie: `waitlist_admin=${encodeURIComponent(token)}` } :
+        { authorization: `Bearer ${token}` }),
+    },
+    ...(method === "GET" ? {} : {
+      body: JSON.stringify({ token, email: "ada@example.com", emailed: true }),
+    }),
+  });
+}
+
+for (const [index, [method, suffix, handler]] of adminRoutes.entries()) {
+  for (const cookie of [false, true]) {
+    test(`${method} ${suffix || "waitlist"} counts only failed auth (${cookie ? "cookie" : "bearer"})`, async (t) => {
+      const db = memoryDb();
+      const env = adminEnv(db);
+      const ip = `198.51.${index}.${cookie ? 1 : 2}`;
+      const call = async (token, address = ip) => {
+        seed(db, [{ email: "ada@example.com" }]);
+        return handler({ request: authRequest(method, suffix, token, address, cookie), env });
+      };
+      for (let i = 0; i < 20; i++) {
+        assert.equal((await call("bad")).status, 401);
+        if (i < 19) assert.equal((await call(env.WAITLIST_ADMIN_TOKEN)).status, 200);
+      }
+      assert.equal((await call(env.WAITLIST_ADMIN_TOKEN)).status, 429);
+      assert.equal((await call("bad")).status, 429);
+      // All authentication paths share the same failed-attempt bucket.
+      for (const [otherMethod, otherSuffix, otherHandler] of adminRoutes) {
+        assert.equal((await otherHandler({
+          request: authRequest(otherMethod, otherSuffix, env.WAITLIST_ADMIN_TOKEN, ip, !cookie), env,
+        })).status, 429);
+      }
+      assert.equal((await call(env.WAITLIST_ADMIN_TOKEN, `${ip}0`)).status, 200);
+      const now = Date.now();
+      t.mock.method(Date, "now", () => now + 10 * 60 * 1000);
+      assert.equal((await call(env.WAITLIST_ADMIN_TOKEN)).status, 200);
+    });
+  }
+}
+
+test("admin tokens accept 512 characters and reject 513 even when matching configuration", async () => {
+  for (const length of [512, 513]) {
+    const token = "x".repeat(length);
+    const db = memoryDb();
+    const env = { DB: db, WAITLIST_ADMIN_TOKEN: token };
+    for (const [method, suffix, handler] of adminRoutes) {
+      for (const cookie of [false, true]) {
+        seed(db, [{ email: "ada@example.com" }]);
+        const res = await handler({ request: authRequest(method, suffix, token, "", cookie), env });
+        assert.equal(res.status, length === 512 ? 200 : 401);
+      }
+    }
+  }
+});
+
+const bodyRoutes = [
+  ["signup JSON", onRequestPost, "POST", "application/json"],
+  ["signup URL form", onRequestPost, "POST", "application/x-www-form-urlencoded"],
+  ["signup multipart", onRequestPost, "POST", "multipart/form-data; boundary=test"],
+  ["login", onSessionPost, "POST", "application/json"],
+  ["patch", onRequestPatch, "PATCH", "application/json"],
+  ["delete", onRequestDelete, "DELETE", "application/json"],
+];
+for (const [name, handler, method, contentType] of bodyRoutes) {
+  for (const contentLength of [null, "1"]) {
+    test(`${name} cancels oversized streamed bodies (${contentLength === null ? "absent" : "false"} Content-Length)`, async () => {
+      let pulls = 0;
+      let cancelled = false;
+      const body = new ReadableStream({
+        pull(controller) {
+          pulls++;
+          controller.enqueue(new TextEncoder().encode("é".repeat(2048)));
+          if (pulls === 10) controller.close();
+        },
+        cancel() { cancelled = true; },
+      }, { highWaterMark: 0 });
+      const db = memoryDb();
+      seed(db, [{ email: "ada@example.com" }]);
+      const res = await handler({
+        request: request("https://sillyapps.co/api/waitlist", withBearer({
+          method, body, duplex: "half",
+          headers: { "content-type": contentType, ...(contentLength ? { "content-length": contentLength } : {}) },
+        })),
+        env: adminEnv(db),
+      });
+      assert.equal(res.status, 413);
+      assert.equal(cancelled, true);
+      assert.equal(pulls, 3);
+      assert.equal(db.rows.size, 1);
+      assert.equal(db.rows.get("ada@example.com").emailed, 0);
+    });
+  }
+}
+
+test("body limit accepts exactly 8192 bytes and rejects 8193", async () => {
+  for (const size of [8192, 8193]) {
+    const base = JSON.stringify({ email: "ada@example.com" });
+    const res = await onRequestPost({
+      request: request("https://sillyapps.co/api/waitlist", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: base.padEnd(size, " "),
+      }), env: { DB: memoryDb() },
+    });
+    assert.equal(res.status, size === 8192 ? 200 : 413);
+  }
+});
+
+test("rate cache evicts expired keys before live keys and caps retained keys", async (t) => {
+  // An isolated module gives this cache test a known empty starting state.
+  const { hitLimit } = await import("../functions/lib/waitlist.js?cache-test");
+  let now = 1000;
+  t.mock.method(Date, "now", () => now);
+  assert.equal(hitLimit("test", "live", 1, 100000), false);
+  for (let i = 0; i < 9999; i++) hitLimit("test", String(i), 1, 10);
+  now += 10;
+  hitLimit("test", "new", 1, 100000);
+  assert.equal(hitLimit("test", "live", 1, 100000), true);
+  for (let i = 0; i < 9999; i++) hitLimit("test", `fresh-${i}`, 1, 100000);
+  assert.equal(hitLimit("test", "new", 1, 100000), true);
+  assert.equal(hitLimit("test", "live", 1, 100000), false);
+});

@@ -33,6 +33,7 @@ export async function onRequestPost(context) {
   }
 
   const body = await readSignupBody(context.request);
+  if (body instanceof Response) return body;
   if (body == null) {
     return jsonResponse(400, { ok: false, error: "invalid_json" });
   }
@@ -110,7 +111,9 @@ export async function onRequestPatch(context) {
     return gate.response;
   }
 
-  const parsed = parseLeadPatch(await readJson(context.request));
+  const body = await readJson(context.request);
+  if (body instanceof Response) return body;
+  const parsed = parseLeadPatch(body);
   if (!parsed.ok) {
     return jsonResponse(400, { ok: false, error: parsed.code });
   }
@@ -167,6 +170,7 @@ export async function onRequestDelete(context) {
   let email = normalizeEmail(url.searchParams.get("email") || "");
   if (!email) {
     const body = await readJson(context.request);
+    if (body instanceof Response) return body;
     email = normalizeEmail(body?.email || "");
   }
   if (!email) {
