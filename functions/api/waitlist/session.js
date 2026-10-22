@@ -6,7 +6,6 @@ import {
   requestIsHttps,
   requireAdmin,
   sessionCookie,
-  tokensMatch,
 } from "../../lib/waitlist.js";
 
 export async function onRequestPost(context) {
@@ -15,14 +14,14 @@ export async function onRequestPost(context) {
     return new Response(null, { status: 404 });
   }
 
-  const body = await readJson(context.request);
-  const token = typeof body?.token === "string" ? body.token : "";
-  if (!tokensMatch(token, want)) {
-    if (loginRateLimited(context.request)) {
-      return jsonResponse(429, { ok: false, error: "rate_limited" });
-    }
-    return jsonResponse(401, { ok: false, error: "unauthorized" });
+  if (loginRateLimited(context.request)) {
+    return jsonResponse(429, { ok: false, error: "rate_limited" });
   }
+  const body = await readJson(context.request);
+  if (body instanceof Response) return body;
+  const token = typeof body?.token === "string" ? body.token : "";
+  const gate = requireAdmin(context.request, context.env, token);
+  if (!gate.ok) return gate.response;
 
   const res = jsonResponse(200, { ok: true });
   res.headers.set("Set-Cookie", sessionCookie(token, requestIsHttps(context.request)));

@@ -2,6 +2,9 @@ const EMAIL_RE = /^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/;
 const MAX_EMAIL = 254;
 const MAX_NAME = 80;
 const MAX_NOTE = 500;
+const MAX_BODY_BYTES = 8 * 1024;
+const MAX_TOKEN_LENGTH = 512;
+const MAX_RATE_KEYS = 10000;
 const ADMIN_COOKIE = "waitlist_admin";
 const POST_LIMIT = 8;
 const POST_WINDOW_MS = 10 * 60 * 1000;
@@ -199,7 +202,10 @@ export function toCsv(rows) {
 }
 
 export function tokensMatch(got, want) {
-  if (typeof got !== "string" || typeof want !== "string" || !want) {
+  if (
+    typeof got !== "string" || typeof want !== "string" || !want ||
+    got.length > MAX_TOKEN_LENGTH || want.length > MAX_TOKEN_LENGTH
+  ) {
     return false;
   }
   const encoder = new TextEncoder();
@@ -213,17 +219,44 @@ export function tokensMatch(got, want) {
   return diff === 0;
 }
 
+async function boundedBody(request) {
+  const reader = request.body?.getReader();
+  const chunks = [];
+  let size = 0;
+  if (reader) {
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        size += value.byteLength;
+        if (size > MAX_BODY_BYTES) {
+          void reader.cancel().catch(() => {});
+          return jsonResponse(413, { ok: false, error: "payload_too_large" });
+        }
+        chunks.push(value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  }
+  return new Response(new Blob(chunks), {
+    headers: { "content-type": request.headers.get("content-type") || "" },
+  });
+}
+
 export async function readSignupBody(request) {
   const contentType = request.headers.get("content-type") || "";
   try {
+    const body = await boundedBody(request);
+    if (body.status === 413) return body;
     if (contentType.includes("application/json")) {
-      return await request.json();
+      return await body.json();
     }
     if (
       contentType.includes("application/x-www-form-urlencoded") ||
       contentType.includes("multipart/form-data")
     ) {
-      const form = await request.formData();
+      const form = await body.formData();
       return {
         email: form.get("email"),
         name: form.get("name"),
@@ -238,7 +271,9 @@ export async function readSignupBody(request) {
 
 export async function readJson(request) {
   try {
-    return await request.json();
+    const body = await boundedBody(request);
+    if (body.status === 413) return body;
+    return await body.json();
   } catch {
     return null;
   }
@@ -306,19 +341,21 @@ export function clientIp(request) {
   return (request.headers.get("cf-connecting-ip") || "").trim();
 }
 
-export function hitLimit(bucket, ip, limit, windowMs) {
-  if (!ip) {
-    return false;
-  }
-  const key = `${bucket}:${ip}`;
+export function hitLimit(bucket, ip, limit, windowMs, record = true) {
   const now = Date.now();
-  const recent = (rateHits.get(key) || []).filter((stamp) => now - stamp < windowMs);
-  if (recent.length >= limit) {
-    rateHits.set(key, recent);
-    return true;
+  for (const [key, entry] of rateHits) {
+    if (entry.expires <= now) rateHits.delete(key);
   }
-  recent.push(now);
-  rateHits.set(key, recent);
+  if (!ip) return false;
+  const key = `${bucket}:${ip}`;
+  const recent = (rateHits.get(key)?.hits || []).filter((stamp) => now - stamp < windowMs);
+  if (recent.length >= limit) return true;
+  if (record) {
+    if (!rateHits.has(key) && rateHits.size >= MAX_RATE_KEYS) {
+      rateHits.delete(rateHits.keys().next().value);
+    }
+    rateHits.set(key, { hits: [...recent, now], expires: now + windowMs });
+  }
   return false;
 }
 
@@ -327,16 +364,20 @@ export function postRateLimited(request) {
 }
 
 export function loginRateLimited(request) {
-  return hitLimit("login", clientIp(request), LOGIN_LIMIT, LOGIN_WINDOW_MS);
+  return hitLimit("login", clientIp(request), LOGIN_LIMIT, LOGIN_WINDOW_MS, false);
 }
 
-export function requireAdmin(request, env) {
+export function requireAdmin(request, env, token) {
   const want = env.WAITLIST_ADMIN_TOKEN;
   if (!want) {
     return { ok: false, response: new Response(null, { status: 404 }) };
   }
-  const got = readAdminToken(request);
+  if (loginRateLimited(request)) {
+    return { ok: false, response: jsonResponse(429, { ok: false, error: "rate_limited" }) };
+  }
+  const got = token === undefined ? readAdminToken(request) : token;
   if (!tokensMatch(got, want)) {
+    hitLimit("login", clientIp(request), LOGIN_LIMIT, LOGIN_WINDOW_MS);
     return { ok: false, response: jsonResponse(401, { ok: false, error: "unauthorized" }) };
   }
   return { ok: true };
