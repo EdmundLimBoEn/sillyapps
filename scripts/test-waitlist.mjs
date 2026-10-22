@@ -52,8 +52,13 @@ function memoryDb(options = {}) {
       },
       async run() {
         if (text.includes("rate_limits")) {
-          for (const [key, row] of rateLimits) {
-            if (row.window_start < bound[0]) rateLimits.delete(key);
+          if (text.startsWith("UPDATE")) {
+            const row = rateLimits.get(JSON.stringify(bound));
+            if (row) row.count--;
+          } else {
+            for (const [key, row] of rateLimits) {
+              if (row.window_start < bound[0]) rateLimits.delete(key);
+            }
           }
           return { success: true };
         }
@@ -798,7 +803,7 @@ test("body limit accepts exactly 8192 bytes and rejects 8193", async () => {
 // Separate module trees ensure even imported limiter state is isolated. SQLite
 // executes the actual migration and SQL, while both handlers share one DB file.
 async function sharedLimitFixture(t) {
-  const { mkdtempSync, cpSync, rmSync, readFileSync, openSync, closeSync } = await import("node:fs");
+  const { mkdtempSync, cpSync, rmSync, readFileSync, readdirSync, openSync, closeSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");
   const { pathToFileURL } = await import("node:url");
   const { execFileSync } = await import("node:child_process");
@@ -824,7 +829,7 @@ print(json.dumps(result))
     }
     return JSON.parse(readFileSync(`${dir}/result.json`, "utf8"));
   }
-  for (const file of ["0001_create_waitlist.sql", "0002_waitlist_admin_fields.sql", "0003_admin_sessions.sql", "0004_rate_limits.sql"]) {
+  for (const file of readdirSync(new URL("../migrations/", import.meta.url)).filter(file => file.endsWith(".sql")).sort()) {
     sql(readFileSync(new URL(`../migrations/${file}`, import.meta.url), "utf8"), [], true);
   }
   const bindings = [];
@@ -835,7 +840,12 @@ print(json.dumps(result))
           bindings.push(params);
           return {
             async run() { sql(query, params); return { success: true }; },
-            async first() { return sql(query, params)[0] || null; },
+            async first() {
+              const row = sql(query, params)[0] || null;
+              // D1 results arrive asynchronously, including concurrent stale reads.
+              await new Promise(resolve => setImmediate(resolve));
+              return row;
+            },
           };
         },
       };
@@ -845,6 +855,7 @@ print(json.dumps(result))
   for (const name of ["isolate-a", "isolate-b"]) {
     cpSync(new URL("../functions", import.meta.url), `${dir}/${name}`, { recursive: true });
     handlers.push({
+      authorize: (await import(pathToFileURL(`${dir}/${name}/lib/waitlist.js`))).requireAdmin,
       signup: (await import(pathToFileURL(`${dir}/${name}/api/waitlist.js`))).onRequestPost,
       login: (await import(pathToFileURL(`${dir}/${name}/api/waitlist/session.js`))).onRequestPost,
     });
@@ -888,7 +899,7 @@ for (const [purpose, limit] of [["post", 8], ["login", 20]]) {
   });
 }
 
-for (const operation of ["SELECT", "INSERT", "DELETE"]) {
+for (const operation of ["SELECT", "INSERT", "DELETE", "UPDATE"]) {
   test(`admin fails closed on limiter ${operation} error`, async () => {
     const db = memoryDb();
     const prepare = db.prepare;
@@ -897,7 +908,7 @@ for (const operation of ["SELECT", "INSERT", "DELETE"]) {
       return prepare(sql);
     };
     const env = adminEnv(db);
-    for (const token of operation === "INSERT" ? ["bad"] : ["bad", env.WAITLIST_ADMIN_TOKEN]) {
+    for (const token of operation === "UPDATE" ? [env.WAITLIST_ADMIN_TOKEN] : ["bad", env.WAITLIST_ADMIN_TOKEN]) {
       const res = await onSessionPost({ request: authRequest("POST", "/session", token, "192.0.2.77"), env });
       assert.equal(res.status, 503);
       assert.equal(res.headers.has("set-cookie"), false);
@@ -921,4 +932,64 @@ test("signup fails open when the limiter database operation fails", async () => 
   });
   assert.equal(res.status, 200);
   assert.ok(db.rows.has("open@example.com"));
+});
+
+for (const mode of ["bearer", "login"]) {
+  test(`concurrent ${mode} attempts reserve the remaining comparison atomically`, async (t) => {
+    const { handlers, db, sql } = await sharedLimitFixture(t);
+    const env = adminEnv(db);
+    const ip = "192.0.2.90";
+    const now = 1800000000000;
+    t.mock.method(Date, "now", () => now);
+    const key = `login:${createHash("sha256").update(ip).digest("hex")}`;
+    sql("INSERT INTO rate_limits (key, window_start, count) VALUES (?, ?, ?)", [key, now, 19]);
+    const token = "concurrent-invalid-token";
+    const requests = Array.from({ length: 64 }, () => authRequest(
+      mode === "login" ? "POST" : "GET", "/session", token, ip
+    ));
+    let comparisons = 0;
+    const encode = TextEncoder.prototype.encode;
+    t.mock.method(TextEncoder.prototype, "encode", function(value) {
+      if (value === token) comparisons++;
+      return encode.call(this, value);
+    });
+    const statuses = await Promise.all(requests.map(async (request, i) => {
+      const handler = handlers[i % 2];
+      if (mode === "login") return (await handler.login({ request, env })).status;
+      return (await handler.authorize(request, env)).response.status;
+    }));
+    assert.equal(comparisons, 1, "only the last available attempt may compare credentials");
+    assert.equal(statuses.filter(status => status === 401).length, 1);
+    assert.equal(statuses.filter(status => status === 429).length, 63);
+  });
+}
+
+test("migrations index rate limit cleanup by window_start", async (t) => {
+  const { sql } = await sharedLimitFixture(t);
+  const indexes = sql("PRAGMA index_list(rate_limits)");
+  assert.ok(indexes.some(index => {
+    const columns = sql("SELECT name FROM pragma_index_info(?) ORDER BY seqno", [index.name]);
+    return columns[0]?.name === "window_start";
+  }), "cleanup needs an index starting with window_start");
+  const plan = sql("EXPLAIN QUERY PLAN DELETE FROM rate_limits WHERE window_start < ?", [1800000000000]);
+  assert.ok(plan.some(row => /SEARCH rate_limits USING INDEX/.test(row.detail)));
+});
+
+test("successful authentication refunds its original window", async (t) => {
+  const { handlers, db, sql } = await sharedLimitFixture(t);
+  const env = adminEnv(db);
+  const ip = "192.0.2.91";
+  const start = 1800000000000;
+  let now = start;
+  t.mock.method(Date, "now", () => now);
+  const key = `login:${createHash("sha256").update(ip).digest("hex")}`;
+  sql("INSERT INTO rate_limits (key, window_start, count) VALUES (?, ?, ?)", [key, start, 19]);
+  const encode = TextEncoder.prototype.encode;
+  t.mock.method(TextEncoder.prototype, "encode", function(value) {
+    if (value === env.WAITLIST_ADMIN_TOKEN) now = start + 600000;
+    return encode.call(this, value);
+  });
+  const gate = await handlers[0].authorize(authRequest("GET", "/session", env.WAITLIST_ADMIN_TOKEN, ip), env);
+  assert.equal(gate.ok, true);
+  assert.deepEqual(sql("SELECT window_start, count FROM rate_limits"), [{ window_start: start, count: 19 }]);
 });

@@ -359,8 +359,7 @@ export function clientIp(request) {
   return (request.headers.get("cf-connecting-ip") || "").trim();
 }
 
-export async function hitLimit(db, bucket, ip, limit, windowMs, record = true) {
-  const now = Date.now();
+export async function hitLimit(db, bucket, ip, limit, windowMs, record = true, now = Date.now()) {
   const windowStart = Math.floor(now / windowMs) * windowMs;
   const key = `${bucket}:${await sessionHash(ip)}`;
   // Cleanup runs with requests, so no scheduled job or isolate-local state is needed.
@@ -396,8 +395,10 @@ export async function requireAdmin(request, env, token) {
   if (!want) {
     return { ok: false, response: new Response(null, { status: 404 }) };
   }
+  const attemptTime = Date.now();
   try {
-    if (await loginRateLimited(request, env.DB)) {
+    // Reserve before checking credentials so concurrent requests share the limit.
+    if (await hitLimit(env.DB, "login", clientIp(request), LOGIN_LIMIT, LOGIN_WINDOW_MS, true, attemptTime)) {
       return { ok: false, response: jsonResponse(429, { ok: false, error: "rate_limited" }) };
     }
   } catch {
@@ -420,14 +421,16 @@ export async function requireAdmin(request, env, token) {
     }
   }
   if (!authenticated) {
-    try {
-      if (await hitLimit(env.DB, "login", clientIp(request), LOGIN_LIMIT, LOGIN_WINDOW_MS)) {
-        return { ok: false, response: jsonResponse(429, { ok: false, error: "rate_limited" }) };
-      }
-    } catch {
-      return { ok: false, response: jsonResponse(503, { ok: false, error: "unavailable" }) };
-    }
     return { ok: false, response: jsonResponse(401, { ok: false, error: "unauthorized" }) };
+  }
+  try {
+    // Refund only this attempt, in its original window, preserving other failures.
+    await env.DB.prepare(
+      "UPDATE rate_limits SET count = count - 1 WHERE key = ? AND window_start = ?"
+    ).bind(`login:${await sessionHash(clientIp(request))}`,
+      Math.floor(attemptTime / LOGIN_WINDOW_MS) * LOGIN_WINDOW_MS).run();
+  } catch {
+    return { ok: false, response: jsonResponse(503, { ok: false, error: "unavailable" }) };
   }
   return { ok: true };
 }
