@@ -31,6 +31,7 @@ function request(url, init) {
 function memoryDb(options = {}) {
   const rows = new Map();
   const sessions = new Map();
+  const rateLimits = new Map();
   const missingAdminColumns = Boolean(options.missingAdminColumns);
 
   function asRow(row) {
@@ -50,6 +51,12 @@ function memoryDb(options = {}) {
         return statement(sql, args);
       },
       async run() {
+        if (text.includes("rate_limits")) {
+          for (const [key, row] of rateLimits) {
+            if (row.window_start < bound[0]) rateLimits.delete(key);
+          }
+          return { success: true };
+        }
         if (text.includes("admin_sessions")) {
           if (text.startsWith("INSERT")) {
             const [session_hash, created_at, expires_at] = bound;
@@ -114,6 +121,16 @@ function memoryDb(options = {}) {
         return { results: list };
       },
       async first() {
+        if (text.includes("rate_limits")) {
+          const [key, window_start] = bound;
+          const id = JSON.stringify(bound);
+          let row = rateLimits.get(id);
+          if (text.startsWith("INSERT")) {
+            row = { key, window_start, count: (row?.count || 0) + 1 };
+            rateLimits.set(id, row);
+          }
+          return row || null;
+        }
         if (text.includes("admin_sessions")) {
           const row = sessions.get(bound[0]);
           const unexpired = !text.includes("expires_at > ?") || row?.expires_at > bound[1];
@@ -777,17 +794,131 @@ test("body limit accepts exactly 8192 bytes and rejects 8193", async () => {
   }
 });
 
-test("rate cache evicts expired keys before live keys and caps retained keys", async (t) => {
-  // An isolated module gives this cache test a known empty starting state.
-  const { hitLimit } = await import("../functions/lib/waitlist.js?cache-test");
-  let now = 1000;
-  t.mock.method(Date, "now", () => now);
-  assert.equal(hitLimit("test", "live", 1, 100000), false);
-  for (let i = 0; i < 9999; i++) hitLimit("test", String(i), 1, 10);
-  now += 10;
-  hitLimit("test", "new", 1, 100000);
-  assert.equal(hitLimit("test", "live", 1, 100000), true);
-  for (let i = 0; i < 9999; i++) hitLimit("test", `fresh-${i}`, 1, 100000);
-  assert.equal(hitLimit("test", "new", 1, 100000), true);
-  assert.equal(hitLimit("test", "live", 1, 100000), false);
+
+// Separate module trees ensure even imported limiter state is isolated. SQLite
+// executes the actual migration and SQL, while both handlers share one DB file.
+async function sharedLimitFixture(t) {
+  const { mkdtempSync, cpSync, rmSync, readFileSync, openSync, closeSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { pathToFileURL } = await import("node:url");
+  const { execFileSync } = await import("node:child_process");
+  const dir = mkdtempSync(`${tmpdir()}/silly-rate-`);
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  function sql(query, params = [], script = false) {
+    const output = openSync(`${dir}/result.json`, "w");
+    try {
+      execFileSync("python3", ["-c", `
+import json, sqlite3, sys
+query, params, script = json.loads(sys.argv[2])
+with sqlite3.connect(sys.argv[1]) as db:
+    db.row_factory = sqlite3.Row
+    if script:
+        db.executescript(query)
+        result = []
+    else:
+        result = [dict(row) for row in db.execute(query, params).fetchall()]
+print(json.dumps(result))
+`, `${dir}/db.sqlite`, JSON.stringify([query, params, script])], { stdio: ["ignore", output, "inherit"], timeout: 10000 });
+    } finally {
+      closeSync(output);
+    }
+    return JSON.parse(readFileSync(`${dir}/result.json`, "utf8"));
+  }
+  for (const file of ["0001_create_waitlist.sql", "0002_waitlist_admin_fields.sql", "0003_admin_sessions.sql", "0004_rate_limits.sql"]) {
+    sql(readFileSync(new URL(`../migrations/${file}`, import.meta.url), "utf8"), [], true);
+  }
+  const bindings = [];
+  const db = {
+    prepare(query) {
+      return {
+        bind(...params) {
+          bindings.push(params);
+          return {
+            async run() { sql(query, params); return { success: true }; },
+            async first() { return sql(query, params)[0] || null; },
+          };
+        },
+      };
+    },
+  };
+  const handlers = [];
+  for (const name of ["isolate-a", "isolate-b"]) {
+    cpSync(new URL("../functions", import.meta.url), `${dir}/${name}`, { recursive: true });
+    handlers.push({
+      signup: (await import(pathToFileURL(`${dir}/${name}/api/waitlist.js`))).onRequestPost,
+      login: (await import(pathToFileURL(`${dir}/${name}/api/waitlist/session.js`))).onRequestPost,
+    });
+  }
+  return { handlers, db, sql, bindings };
+}
+
+for (const [purpose, limit] of [["post", 8], ["login", 20]]) {
+  test(`${purpose} limit is shared across isolated handlers and stores only hashed IPs`, async (t) => {
+    const { handlers, db, sql, bindings } = await sharedLimitFixture(t);
+    const env = adminEnv(db);
+    const ip = "203.0.113.87";
+    const windowMs = 600000;
+    let now = 1800000000000;
+    t.mock.method(Date, "now", () => now);
+    const call = (index, token = "bad") => purpose === "login"
+      ? handlers[index].login({ request: authRequest("POST", "/session", token, ip), env })
+      : handlers[index].signup({ request: request("https://sillyapps.co/api/waitlist", {
+        method: "POST", headers: { "content-type": "application/json", "cf-connecting-ip": ip },
+        body: JSON.stringify({ email: "shared@example.com" }),
+      }), env });
+    // Each isolate alone sees fewer attempts than the threshold.
+    for (let i = 0; i < limit; i++) {
+      assert.equal((await call(i % 2)).status, purpose === "login" ? 401 : 200);
+    }
+    assert.equal((await call(1, env.WAITLIST_ADMIN_TOKEN)).status, 429);
+    const rows = sql("SELECT * FROM rate_limits");
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].key, `${purpose}:${createHash("sha256").update(ip).digest("hex")}`);
+    assert.equal(JSON.stringify(bindings).includes(ip), false);
+    assert.equal(JSON.stringify(sql("SELECT * FROM waitlist") ).includes(ip), false);
+    assert.equal(JSON.stringify(sql("SELECT * FROM admin_sessions")).includes(ip), false);
+    now += windowMs;
+    assert.equal((await call(0)).status, purpose === "login" ? 401 : 200);
+    assert.equal(sql("SELECT * FROM rate_limits").length, 2);
+    now += 86400000;
+    await call(1);
+    const retained = sql("SELECT * FROM rate_limits");
+    assert.equal(retained.length, 2);
+    assert.ok(retained.every(row => row.window_start >= now - 86400000));
+  });
+}
+
+for (const operation of ["SELECT", "INSERT", "DELETE"]) {
+  test(`admin fails closed on limiter ${operation} error`, async () => {
+    const db = memoryDb();
+    const prepare = db.prepare;
+    db.prepare = (sql) => {
+      if (sql.includes("rate_limits") && sql.startsWith(operation)) throw new Error("D1 unavailable");
+      return prepare(sql);
+    };
+    const env = adminEnv(db);
+    for (const token of operation === "INSERT" ? ["bad"] : ["bad", env.WAITLIST_ADMIN_TOKEN]) {
+      const res = await onSessionPost({ request: authRequest("POST", "/session", token, "192.0.2.77"), env });
+      assert.equal(res.status, 503);
+      assert.equal(res.headers.has("set-cookie"), false);
+      assert.equal(db.sessions.size, 0);
+    }
+  });
+}
+
+test("signup fails open when the limiter database operation fails", async () => {
+  const db = memoryDb();
+  const prepare = db.prepare;
+  db.prepare = (sql) => {
+    if (sql.includes("rate_limits")) throw new Error("D1 unavailable");
+    return prepare(sql);
+  };
+  const res = await onRequestPost({
+    request: request("https://sillyapps.co/api/waitlist", {
+      method: "POST", headers: { "content-type": "application/json", "cf-connecting-ip": "192.0.2.78" },
+      body: JSON.stringify({ email: "open@example.com" }),
+    }), env: { DB: db },
+  });
+  assert.equal(res.status, 200);
+  assert.ok(db.rows.has("open@example.com"));
 });

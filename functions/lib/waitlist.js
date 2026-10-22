@@ -4,15 +4,12 @@ const MAX_NAME = 80;
 const MAX_NOTE = 500;
 const MAX_BODY_BYTES = 8 * 1024;
 const MAX_TOKEN_LENGTH = 512;
-const MAX_RATE_KEYS = 10000;
 const ADMIN_COOKIE = "waitlist_admin";
 const SESSION_LIFETIME_MS = 12 * 60 * 60 * 1000;
 const POST_LIMIT = 8;
 const POST_WINDOW_MS = 10 * 60 * 1000;
 const LOGIN_LIMIT = 20;
 const LOGIN_WINDOW_MS = 10 * 60 * 1000;
-
-const rateHits = new Map();
 
 export function normalizeEmail(value) {
   if (typeof value !== "string") {
@@ -362,30 +359,36 @@ export function clientIp(request) {
   return (request.headers.get("cf-connecting-ip") || "").trim();
 }
 
-export function hitLimit(bucket, ip, limit, windowMs, record = true) {
+export async function hitLimit(db, bucket, ip, limit, windowMs, record = true) {
   const now = Date.now();
-  for (const [key, entry] of rateHits) {
-    if (entry.expires <= now) rateHits.delete(key);
-  }
-  if (!ip) return false;
-  const key = `${bucket}:${ip}`;
-  const recent = (rateHits.get(key)?.hits || []).filter((stamp) => now - stamp < windowMs);
-  if (recent.length >= limit) return true;
+  const windowStart = Math.floor(now / windowMs) * windowMs;
+  const key = `${bucket}:${await sessionHash(ip)}`;
+  // Cleanup runs with requests, so no scheduled job or isolate-local state is needed.
+  await db.prepare("DELETE FROM rate_limits WHERE window_start < ?")
+    .bind(now - 86400000).run();
   if (record) {
-    if (!rateHits.has(key) && rateHits.size >= MAX_RATE_KEYS) {
-      rateHits.delete(rateHits.keys().next().value);
-    }
-    rateHits.set(key, { hits: [...recent, now], expires: now + windowMs });
+    const row = await db.prepare(
+      "INSERT INTO rate_limits (key, window_start, count) VALUES (?, ?, 1) " +
+      "ON CONFLICT(key, window_start) DO UPDATE SET count = count + 1 RETURNING count"
+    ).bind(key, windowStart).first();
+    return row.count > limit;
   }
-  return false;
+  const row = await db.prepare(
+    "SELECT count FROM rate_limits WHERE key = ? AND window_start = ?"
+  ).bind(key, windowStart).first();
+  return (row?.count || 0) >= limit;
 }
 
-export function postRateLimited(request) {
-  return hitLimit("post", clientIp(request), POST_LIMIT, POST_WINDOW_MS);
+export async function postRateLimited(request, db) {
+  try {
+    return await hitLimit(db, "post", clientIp(request), POST_LIMIT, POST_WINDOW_MS);
+  } catch {
+    return false;
+  }
 }
 
-export function loginRateLimited(request) {
-  return hitLimit("login", clientIp(request), LOGIN_LIMIT, LOGIN_WINDOW_MS, false);
+export function loginRateLimited(request, db) {
+  return hitLimit(db, "login", clientIp(request), LOGIN_LIMIT, LOGIN_WINDOW_MS, false);
 }
 
 export async function requireAdmin(request, env, token) {
@@ -393,8 +396,12 @@ export async function requireAdmin(request, env, token) {
   if (!want) {
     return { ok: false, response: new Response(null, { status: 404 }) };
   }
-  if (loginRateLimited(request)) {
-    return { ok: false, response: jsonResponse(429, { ok: false, error: "rate_limited" }) };
+  try {
+    if (await loginRateLimited(request, env.DB)) {
+      return { ok: false, response: jsonResponse(429, { ok: false, error: "rate_limited" }) };
+    }
+  } catch {
+    return { ok: false, response: jsonResponse(503, { ok: false, error: "unavailable" }) };
   }
   const header = request.headers.get("authorization") || "";
   let authenticated = false;
@@ -413,7 +420,13 @@ export async function requireAdmin(request, env, token) {
     }
   }
   if (!authenticated) {
-    hitLimit("login", clientIp(request), LOGIN_LIMIT, LOGIN_WINDOW_MS);
+    try {
+      if (await hitLimit(env.DB, "login", clientIp(request), LOGIN_LIMIT, LOGIN_WINDOW_MS)) {
+        return { ok: false, response: jsonResponse(429, { ok: false, error: "rate_limited" }) };
+      }
+    } catch {
+      return { ok: false, response: jsonResponse(503, { ok: false, error: "unavailable" }) };
+    }
     return { ok: false, response: jsonResponse(401, { ok: false, error: "unauthorized" }) };
   }
   return { ok: true };

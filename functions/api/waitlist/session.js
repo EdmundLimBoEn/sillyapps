@@ -15,8 +15,12 @@ export async function onRequestPost(context) {
     return new Response(null, { status: 404 });
   }
 
-  if (loginRateLimited(context.request)) {
-    return jsonResponse(429, { ok: false, error: "rate_limited" });
+  try {
+    if (await loginRateLimited(context.request, context.env.DB)) {
+      return jsonResponse(429, { ok: false, error: "rate_limited" });
+    }
+  } catch {
+    return jsonResponse(503, { ok: false, error: "unavailable" });
   }
   const body = await readJson(context.request);
   if (body instanceof Response) return body;
