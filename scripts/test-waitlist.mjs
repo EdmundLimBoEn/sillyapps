@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
+import "./test-admin.mjs";
 import {
   onRequestDelete,
   onRequestGet,

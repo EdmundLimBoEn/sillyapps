@@ -12,7 +12,8 @@ const sparkEl = document.querySelector("[data-spark]");
 const sparkLine = document.querySelector("[data-spark-line]");
 const migrationBanner = document.querySelector("[data-migration-banner]");
 
-let bearer = "";
+let authGeneration = 0;
+let authController = new AbortController();
 let adminFields = true;
 
 function setStatus(el, kind, message) {
@@ -23,24 +24,35 @@ function setStatus(el, kind, message) {
   el.textContent = message || "";
 }
 
-function authHeaders(extra) {
-  const headers = { ...(extra || {}) };
-  if (bearer) {
-    headers.Authorization = `Bearer ${bearer}`;
-  }
-  return headers;
+function resetAuth() {
+  authGeneration++;
+  authController.abort();
+  authController = new AbortController();
 }
 
 async function api(url, init = {}) {
-  const headers = authHeaders(init.headers || {});
+  const generation = authGeneration;
+  const headers = { ...(init.headers || {}) };
   if (init.body && !headers["content-type"]) {
     headers["content-type"] = "application/json";
   }
-  return fetch(url, {
-    credentials: "same-origin",
-    ...init,
-    headers,
-  });
+  try {
+    const res = await fetch(url, {
+      credentials: "same-origin",
+      ...init,
+      headers,
+      signal: authController.signal,
+    });
+    if (generation !== authGeneration) return null;
+    if (res.status === 401 && init.method !== "POST") {
+      showLogin();
+      return null;
+    }
+    return res;
+  } catch (error) {
+    if (generation !== authGeneration || error.name === "AbortError") return null;
+    throw error;
+  }
 }
 
 function queryString() {
@@ -56,10 +68,10 @@ function queryString() {
 }
 
 function showLogin() {
+  resetAuth();
   loginView.hidden = false;
   boardView.hidden = true;
   logoutBtn.hidden = true;
-  bearer = "";
   adminFields = true;
   rowsEl.replaceChildren();
   countEl.textContent = "";
@@ -170,17 +182,18 @@ function renderRows(signups) {
 }
 
 async function loadBoard() {
+  const generation = authGeneration;
   const params = queryString();
   params.set("format", "json");
   const res = await api(`/api/waitlist?${params.toString()}`);
-  if (res.status === 401 || res.status === 404) {
+  if (!res) return false;
+  if (res.status === 404) {
     showLogin();
-    if (res.status === 404) {
-      setStatus(loginStatus, "err", "WAITLIST_ADMIN_TOKEN is not set on this deploy.");
-    }
+    setStatus(loginStatus, "err", "WAITLIST_ADMIN_TOKEN is not set on this deploy.");
     return false;
   }
   const payload = await res.json().catch(() => ({}));
+  if (generation !== authGeneration) return;
   if (!res.ok || payload.ok === false) {
     setStatus(boardStatus, "err", "Could not load the waitlist.");
     return false;
@@ -201,12 +214,15 @@ async function loadBoard() {
 }
 
 async function patchRow(email, patch, control) {
+  const generation = authGeneration;
   setStatus(boardStatus, "pending", "Saving…");
   const res = await api("/api/waitlist", {
     method: "PATCH",
     body: JSON.stringify({ email, ...patch }),
   });
+  if (!res) return;
   const payload = await res.json().catch(() => ({}));
+  if (generation !== authGeneration) return;
   if (!res.ok || payload.ok === false) {
     setStatus(boardStatus, "err", "Could not save that row.");
     await loadBoard();
@@ -226,11 +242,14 @@ async function deleteRow(email) {
   if (!window.confirm(`Delete ${email} from the waitlist?`)) {
     return;
   }
+  const generation = authGeneration;
   setStatus(boardStatus, "pending", "Deleting…");
   const res = await api(`/api/waitlist?email=${encodeURIComponent(email)}`, {
     method: "DELETE",
   });
+  if (!res) return;
   const payload = await res.json().catch(() => ({}));
+  if (generation !== authGeneration) return;
   if (!res.ok || payload.ok === false) {
     setStatus(boardStatus, "err", "Could not delete that row.");
     return;
@@ -240,14 +259,17 @@ async function deleteRow(email) {
 }
 
 async function download(format) {
+  const generation = authGeneration;
   const params = queryString();
   params.set("format", format);
   const res = await api(`/api/waitlist?${params.toString()}`);
+  if (!res) return;
   if (!res.ok) {
     setStatus(boardStatus, "err", "Could not export.");
     return;
   }
-  const blob = await res.blob();
+  const blob = await res.blob().catch(() => null);
+  if (generation !== authGeneration || !blob) return;
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
@@ -258,16 +280,19 @@ async function download(format) {
 
 loginForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const token = String(new FormData(loginForm).get("token") || "");
+  resetAuth();
+  const generation = authGeneration;
   setStatus(loginStatus, "pending", "Checking…");
-  const res = await fetch("/api/waitlist/session", {
+  const res = await api("/api/waitlist/session", {
     method: "POST",
     credentials: "same-origin",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ token }),
+    body: JSON.stringify({ token: String(new FormData(loginForm).get("token") || "") }),
   });
+  if (!res) return;
   if (!res.ok) {
     const payload = await res.json().catch(() => ({}));
+    if (generation !== authGeneration) return;
     const message =
       payload.error === "rate_limited"
         ? "Too many tries. Wait a few minutes."
@@ -275,32 +300,37 @@ loginForm.addEventListener("submit", async (event) => {
     setStatus(loginStatus, "err", message);
     return;
   }
-  bearer = token;
   loginForm.reset();
   setStatus(loginStatus, "", "");
   const ok = await loadBoard();
+  if (generation !== authGeneration) return;
   if (!ok) {
     setStatus(loginStatus, "err", "Signed in, but the list did not load.");
   }
 });
 
 logoutBtn.addEventListener("click", async () => {
+  showLogin();
+  const generation = authGeneration;
   try {
     const res = await api("/api/waitlist/session", { method: "DELETE" });
+    if (!res) return;
     if (!res.ok) {
       throw new Error("Logout failed");
     }
-    showLogin();
     setStatus(loginStatus, "ok", "Logged out.");
   } catch {
-    setStatus(boardStatus, "err", "Could not log out. Please try again.");
+    if (generation !== authGeneration) return;
+    setStatus(loginStatus, "err", "Could not log out. Please sign in and try again.");
   }
 });
 
 filtersForm.addEventListener("submit", async (event) => {
   event.preventDefault();
+  const generation = authGeneration;
   setStatus(boardStatus, "pending", "Filtering…");
   await loadBoard();
+  if (generation !== authGeneration) return;
   setStatus(boardStatus, "", "");
 });
 
