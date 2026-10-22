@@ -129,6 +129,7 @@ a:hover { text-decoration-color: currentColor; }
 .cta-row .btn { min-height: 40px; font-size: 13px; padding: 0 14px; }
 
 .card-note { margin: calc(var(--s2) * -1) 0 0; color: var(--faint); font-size: 12px; }
+.card-note a { color: var(--muted); text-decoration: underline; text-underline-offset: 2px; }
 
 /* Snippets download tip */
 .download-note {
