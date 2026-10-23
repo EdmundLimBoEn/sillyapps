@@ -741,12 +741,17 @@ for (const [index, [method, suffix, handler]] of adminRoutes.entries()) {
         assert.equal((await call("bad")).status, 401);
         if (i < 19) assert.equal((await call(valid)).status, 200);
       }
+      if (cookie && method !== "POST") {
+        assert.equal((await call(valid)).status, 200);
+        assert.equal((await call("bad")).status, 401);
+        return;
+      }
       assert.equal((await call(valid)).status, 429);
       assert.equal((await call("bad")).status, 429);
       // All authentication paths share the same failed-attempt bucket.
       for (const [otherMethod, otherSuffix, otherHandler] of adminRoutes) {
         assert.equal((await otherHandler({
-          request: authRequest(otherMethod, otherSuffix, env.WAITLIST_ADMIN_TOKEN, ip, !cookie), env,
+          request: authRequest(otherMethod, otherSuffix, env.WAITLIST_ADMIN_TOKEN, ip), env,
         })).status, 429);
       }
       assert.equal((await call(valid, `${ip}0`)).status, 200);
@@ -1017,4 +1022,67 @@ test("successful authentication refunds its original window", async (t) => {
   const gate = await handlers[0].authorize(authRequest("GET", "/session", env.WAITLIST_ADMIN_TOKEN, ip), env);
   assert.equal(gate.ok, true);
   assert.deepEqual(sql("SELECT window_start, count FROM rate_limits"), [{ window_start: start, count: 19 }]);
+});
+
+
+test("credential-free probes do not consume the token budget", async () => {
+  const env = adminEnv(memoryDb());
+  for (const [method, suffix, handler] of adminRoutes) {
+    for (let i = 0; i < 24; i++) {
+      const res = await handler({
+        request: request(`https://sillyapps.co/api/waitlist${suffix}`, {
+          method,
+          ...(method === "POST" ? { body: "{}", headers: { "content-type": "application/json" } } : {}),
+        }), env,
+      });
+      assert.equal(res.status, 401);
+    }
+  }
+  await loginSession(env);
+});
+
+test("valid sessions survive exhausted token budgets and 64 concurrent requests", async () => {
+  const env = adminEnv(memoryDb());
+  const { id } = await loginSession(env);
+  const probe = () => onSessionGet({ request: authRequest("GET", "/session", id, "", true), env });
+  const responses = await Promise.all(Array.from({ length: 64 }, probe));
+  assert.ok(responses.every(res => res.status === 200));
+  assert.equal((await probe()).status, 200);
+  for (let i = 0; i < 20; i++) {
+    assert.equal((await onSessionGet({ request: authRequest("GET", "/session", "bad", ""), env })).status, 401);
+  }
+  assert.equal((await onSessionGet({ request: authRequest("GET", "/session", "bad", ""), env })).status, 429);
+  for (const [method, suffix, handler] of adminRoutes.filter(([method]) => method !== "POST")) {
+    seed(env.DB, [{ email: "ada@example.com" }]);
+    assert.equal((await handler({ request: authRequest(method, suffix, id, "", true), env })).status, 200);
+  }
+  env.WAITLIST_ADMIN_TOKEN = "rotated-test-only-token";
+  assert.equal((await probe()).status, 401, "rotation revokes sessions even with an exhausted token budget");
+  const login = await onSessionPost({
+    request: authRequest("POST", "/session", env.WAITLIST_ADMIN_TOKEN, "192.0.2.124"), env,
+  });
+  assert.equal(login.status, 200);
+  const freshProbe = await onSessionGet({
+    request: request("https://sillyapps.co/api/waitlist/session", {
+      headers: { cookie: login.headers.get("set-cookie").split(";")[0] },
+    }), env,
+  });
+  assert.equal(freshProbe.status, 200, "new sessions bypass the exhausted token budget");
+});
+
+test("cross-site admin requests are rejected before database access", async () => {
+  const env = adminEnv({ prepare() { throw new Error("unexpected database access"); } });
+  for (const [method, suffix, handler] of [...adminRoutes, ["DELETE", "/session", onSessionDelete]]) {
+    for (const headers of [
+      { "sec-fetch-site": "cross-site" },
+      { origin: "https://attacker.example" },
+    ]) {
+      for (const [credential, cookie] of [["", false], ["bad", false], ["a".repeat(64), true]]) {
+        const req = authRequest(method, suffix, credential, "192.0.2.123", cookie);
+        for (const [key, value] of Object.entries(headers)) req.headers.set(key, value);
+        const res = await handler({ request: req, env });
+        assert.equal(res.status, 403);
+      }
+    }
+  }
 });
