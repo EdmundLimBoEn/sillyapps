@@ -6,6 +6,7 @@ import {
   loginRateLimited,
   readJson,
   requireAdmin,
+  rejectCrossSiteAdmin,
   sessionCookie,
 } from "../../lib/waitlist.js";
 
@@ -15,16 +16,18 @@ export async function onRequestPost(context) {
     return new Response(null, { status: 404 });
   }
 
+  const crossSite = rejectCrossSiteAdmin(context.request);
+  if (crossSite) return crossSite;
+  const body = await readJson(context.request);
+  if (body instanceof Response) return body;
+  const token = typeof body?.token === "string" ? body.token : "";
   try {
-    if (await loginRateLimited(context.request, context.env.DB)) {
+    if (token && await loginRateLimited(context.request, context.env.DB)) {
       return jsonResponse(429, { ok: false, error: "rate_limited" });
     }
   } catch {
     return jsonResponse(503, { ok: false, error: "unavailable" });
   }
-  const body = await readJson(context.request);
-  if (body instanceof Response) return body;
-  const token = typeof body?.token === "string" ? body.token : "";
   const gate = await requireAdmin(context.request, context.env, token);
   if (!gate.ok) return gate.response;
 
@@ -43,6 +46,8 @@ export async function onRequestDelete(context) {
   if (!want) {
     return new Response(null, { status: 404 });
   }
+  const crossSite = rejectCrossSiteAdmin(context.request);
+  if (crossSite) return crossSite;
   try {
     await deleteAdminSession(context.request, context.env.DB);
   } catch {

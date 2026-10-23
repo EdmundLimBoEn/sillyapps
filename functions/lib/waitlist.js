@@ -390,36 +390,52 @@ export function loginRateLimited(request, db) {
   return hitLimit(db, "login", clientIp(request), LOGIN_LIMIT, LOGIN_WINDOW_MS, false);
 }
 
+export function rejectCrossSiteAdmin(request) {
+  const origin = request.headers.get("origin");
+  if (request.headers.get("sec-fetch-site") === "cross-site" ||
+      (origin && origin !== new URL(request.url).origin)) {
+    return jsonResponse(403, { ok: false, error: "forbidden" });
+  }
+  return null;
+}
+
 export async function requireAdmin(request, env, token) {
   const want = env.WAITLIST_ADMIN_TOKEN;
   if (!want) {
     return { ok: false, response: new Response(null, { status: 404 }) };
   }
+  const crossSite = rejectCrossSiteAdmin(request);
+  if (crossSite) return { ok: false, response: crossSite };
+
+  const header = request.headers.get("authorization") || "";
+  if (token === undefined && !header.startsWith("Bearer ")) {
+    const id = readSessionId(request);
+    if (id) {
+      try {
+        const session = await env.DB.prepare(
+          "SELECT session_hash FROM admin_sessions WHERE session_hash = ? AND expires_at > ?"
+        ).bind(await sessionHash(id), Date.now()).first();
+        if (session) return { ok: true };
+      } catch {
+        return { ok: false, response: jsonResponse(503, { ok: false, error: "unavailable" }) };
+      }
+    }
+    return { ok: false, response: jsonResponse(401, { ok: false, error: "unauthorized" }) };
+  }
+  const supplied = token === undefined ? header.slice(7) : token;
+  if (!supplied) {
+    return { ok: false, response: jsonResponse(401, { ok: false, error: "unauthorized" }) };
+  }
   const attemptTime = Date.now();
   try {
-    // Reserve before checking credentials so concurrent requests share the limit.
+    // Reserve actual token guesses atomically; session checks never use this budget.
     if (await hitLimit(env.DB, "login", clientIp(request), LOGIN_LIMIT, LOGIN_WINDOW_MS, true, attemptTime)) {
       return { ok: false, response: jsonResponse(429, { ok: false, error: "rate_limited" }) };
     }
   } catch {
     return { ok: false, response: jsonResponse(503, { ok: false, error: "unavailable" }) };
   }
-  const header = request.headers.get("authorization") || "";
-  let authenticated = false;
-  if (token !== undefined || header.startsWith("Bearer ")) {
-    authenticated = tokensMatch(token === undefined ? header.slice(7) : token, want);
-  } else {
-    const id = readSessionId(request);
-    if (id) {
-      try {
-        authenticated = Boolean(await env.DB.prepare(
-          "SELECT session_hash FROM admin_sessions WHERE session_hash = ? AND expires_at > ?"
-        ).bind(await sessionHash(id), Date.now()).first());
-      } catch {
-        return { ok: false, response: jsonResponse(503, { ok: false, error: "unavailable" }) };
-      }
-    }
-  }
+  const authenticated = tokensMatch(supplied, want);
   if (!authenticated) {
     return { ok: false, response: jsonResponse(401, { ok: false, error: "unauthorized" }) };
   }
