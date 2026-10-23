@@ -127,3 +127,12 @@ for (const operation of ["filter", "delete"]) {
     assert.equal(app.get("rows").children.length, 0);
   });
 }
+
+// Read the actual markup: the JavaScript submit handler is absent in this fallback.
+test("native login submission posts credentials to the session endpoint", () => {
+  const html = readFileSync(new URL("../site/admin/index.html", import.meta.url), "utf8");
+  const form = html.match(/<form\b[^>]*\bdata-login-form\b[^>]*>/)?.[0];
+  assert.ok(form);
+  assert.match(form, /\bmethod="post"/i);
+  assert.match(form, /\baction="\/api\/waitlist\/session"/);
+});

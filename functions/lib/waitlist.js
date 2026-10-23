@@ -300,8 +300,17 @@ function hex(bytes) {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-async function sessionHash(id) {
+async function sha256(id) {
   return hex(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(id))));
+}
+
+// Binding the lookup to the current credential invalidates sessions on rotation.
+async function sessionHash(id, token) {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw", encoder.encode(token), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]
+  );
+  return hex(new Uint8Array(await crypto.subtle.sign("HMAC", key, encoder.encode(id))));
 }
 
 function readSessionId(request) {
@@ -313,21 +322,21 @@ async function cleanExpiredSessions(db) {
   await db.prepare("DELETE FROM admin_sessions WHERE expires_at <= ?").bind(Date.now()).run();
 }
 
-export async function createAdminSession(db) {
+export async function createAdminSession(db, token) {
   const id = hex(crypto.getRandomValues(new Uint8Array(32)));
   const now = Date.now();
   await cleanExpiredSessions(db);
   await db.prepare(
     "INSERT INTO admin_sessions (session_hash, created_at, expires_at) VALUES (?, ?, ?)"
-  ).bind(await sessionHash(id), now, now + SESSION_LIFETIME_MS).run();
+  ).bind(await sessionHash(id, token), now, now + SESSION_LIFETIME_MS).run();
   return id;
 }
 
-export async function deleteAdminSession(request, db) {
+export async function deleteAdminSession(request, db, token) {
   const id = readSessionId(request);
   if (id) {
     await db.prepare("DELETE FROM admin_sessions WHERE session_hash = ?")
-      .bind(await sessionHash(id)).run();
+      .bind(await sessionHash(id, token)).run();
   }
   await cleanExpiredSessions(db);
 }
@@ -361,7 +370,7 @@ export function clientIp(request) {
 
 export async function hitLimit(db, bucket, ip, limit, windowMs, record = true, now = Date.now()) {
   const windowStart = Math.floor(now / windowMs) * windowMs;
-  const key = `${bucket}:${await sessionHash(ip)}`;
+  const key = `${bucket}:${await sha256(ip)}`;
   // Cleanup runs with requests, so no scheduled job or isolate-local state is needed.
   await db.prepare("DELETE FROM rate_limits WHERE window_start < ?")
     .bind(now - 86400000).run();
@@ -414,7 +423,7 @@ export async function requireAdmin(request, env, token) {
       try {
         authenticated = Boolean(await env.DB.prepare(
           "SELECT session_hash FROM admin_sessions WHERE session_hash = ? AND expires_at > ?"
-        ).bind(await sessionHash(id), Date.now()).first());
+        ).bind(await sessionHash(id, want), Date.now()).first());
       } catch {
         return { ok: false, response: jsonResponse(503, { ok: false, error: "unavailable" }) };
       }
@@ -427,7 +436,7 @@ export async function requireAdmin(request, env, token) {
     // Refund only this attempt, in its original window, preserving other failures.
     await env.DB.prepare(
       "UPDATE rate_limits SET count = count - 1 WHERE key = ? AND window_start = ?"
-    ).bind(`login:${await sessionHash(clientIp(request))}`,
+    ).bind(`login:${await sha256(clientIp(request))}`,
       Math.floor(attemptTime / LOGIN_WINDOW_MS) * LOGIN_WINDOW_MS).run();
   } catch {
     return { ok: false, response: jsonResponse(503, { ok: false, error: "unavailable" }) };
