@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import test from "node:test";
 import "./test-admin.mjs";
 import {
@@ -580,7 +580,7 @@ test("session cookie contains a random id and D1 stores only its hash for 12 hou
   assert.match(cookie, /Secure/);
   assert.match(cookie, /SameSite=Strict/);
   assert.match(cookie, /Path=\/(?:;|$)/);
-  const hash = createHash("sha256").update(id).digest("hex");
+  const hash = createHmac("sha256", env.WAITLIST_ADMIN_TOKEN).update(id).digest("hex");
   assert.equal(db.sessions.size, 1);
   const row = db.sessions.get(hash);
   assert.deepEqual(Object.keys(row).sort(), ["created_at", "expires_at", "session_hash"]);
@@ -593,13 +593,14 @@ test("session cookie contains a random id and D1 stores only its hash for 12 hou
   assert.equal(db.sessions.size, 2);
 });
 
-for (const state of ["valid", "logged out", "expired", "legacy token", "unknown id"]) {
+for (const state of ["valid", "logged out", "expired", "rotated token", "legacy token", "unknown id"]) {
   test(`admin routes enforce ${state} sessions`, async (t) => {
     const db = memoryDb();
     const env = adminEnv(db);
     const now = Date.now();
     t.mock.method(Date, "now", () => now);
     const { id } = await loginSession(env);
+    if (state === "rotated token") env.WAITLIST_ADMIN_TOKEN = "rotated-test-only-token";
     if (state === "logged out") {
       const logout = await onSessionDelete({
         request: authRequest("DELETE", "/session", id, "", true), env,
@@ -636,9 +637,32 @@ test("login cleans up expired sessions without deleting live sessions", async (t
   t.mock.method(Date, "now", () => now + 12 * 60 * 60 * 1000);
   await loginSession(env);
   assert.equal(db.sessions.size, 2);
-  assert.equal(db.sessions.has(createHash("sha256").update(old.id).digest("hex")), false);
+  assert.equal(db.sessions.has(createHmac("sha256", env.WAITLIST_ADMIN_TOKEN).update(old.id).digest("hex")), false);
   const probe = await onSessionGet({ request: authRequest("GET", "/session", live.id, "", true), env });
   assert.equal(probe.status, 200);
+});
+
+test("token rotation rejects all old sessions and permits new login and logout", async () => {
+  const env = adminEnv(memoryDb());
+  const oldToken = env.WAITLIST_ADMIN_TOKEN;
+  const oldSessions = [await loginSession(env), await loginSession(env)];
+  env.WAITLIST_ADMIN_TOKEN = "rotated-test-only-token";
+  const staleBearer = await onSessionGet({
+    request: authRequest("GET", "/session", oldToken), env,
+  });
+  assert.equal(staleBearer.status, 401);
+  for (const { id } of oldSessions) {
+    const res = await onSessionGet({ request: authRequest("GET", "/session", id, "", true), env });
+    assert.equal(res.status, 401);
+  }
+  const fresh = await loginSession(env);
+  const probe = () => onSessionGet({ request: authRequest("GET", "/session", fresh.id, "", true), env });
+  assert.equal((await probe()).status, 200);
+  const logout = await onSessionDelete({
+    request: authRequest("DELETE", "/session", fresh.id, "", true), env,
+  });
+  assert.equal(logout.status, 200);
+  assert.equal((await probe()).status, 401);
 });
 
 test("logout revokes only the supplied session", async () => {
@@ -1032,6 +1056,18 @@ test("valid sessions survive exhausted token budgets and 64 concurrent requests"
     seed(env.DB, [{ email: "ada@example.com" }]);
     assert.equal((await handler({ request: authRequest(method, suffix, id, "", true), env })).status, 200);
   }
+  env.WAITLIST_ADMIN_TOKEN = "rotated-test-only-token";
+  assert.equal((await probe()).status, 401, "rotation revokes sessions even with an exhausted token budget");
+  const login = await onSessionPost({
+    request: authRequest("POST", "/session", env.WAITLIST_ADMIN_TOKEN, "192.0.2.124"), env,
+  });
+  assert.equal(login.status, 200);
+  const freshProbe = await onSessionGet({
+    request: request("https://sillyapps.co/api/waitlist/session", {
+      headers: { cookie: login.headers.get("set-cookie").split(";")[0] },
+    }), env,
+  });
+  assert.equal(freshProbe.status, 200, "new sessions bypass the exhausted token budget");
 });
 
 test("cross-site admin requests are rejected before database access", async () => {
@@ -1041,8 +1077,8 @@ test("cross-site admin requests are rejected before database access", async () =
       { "sec-fetch-site": "cross-site" },
       { origin: "https://attacker.example" },
     ]) {
-      for (const credential of ["", "bad"]) {
-        const req = authRequest(method, suffix, credential, "192.0.2.123");
+      for (const [credential, cookie] of [["", false], ["bad", false], ["a".repeat(64), true]]) {
+        const req = authRequest(method, suffix, credential, "192.0.2.123", cookie);
         for (const [key, value] of Object.entries(headers)) req.headers.set(key, value);
         const res = await handler({ request: req, env });
         assert.equal(res.status, 403);
