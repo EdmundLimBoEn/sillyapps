@@ -130,9 +130,10 @@ function memoryDb(options = {}) {
       async first() {
         if (text.includes("rate_limits")) {
           const [key, window_start] = bound;
-          const id = JSON.stringify(bound);
+          const id = JSON.stringify([key, window_start]);
           let row = rateLimits.get(id);
           if (text.startsWith("INSERT")) {
+            if (row && text.includes("WHERE count < ?") && row.count >= bound[2]) return null;
             row = { key, window_start, count: (row?.count || 0) + 1 };
             rateLimits.set(id, row);
           }
@@ -906,7 +907,7 @@ for (const [purpose, limit] of [["post", 8], ["login", 20]]) {
   });
 }
 
-for (const operation of ["SELECT", "INSERT", "DELETE", "UPDATE"]) {
+for (const operation of ["INSERT", "DELETE", "UPDATE"]) {
   test(`admin fails closed on limiter ${operation} error`, async () => {
     const db = memoryDb();
     const prepare = db.prepare;
@@ -968,8 +969,43 @@ for (const mode of ["bearer", "login"]) {
     assert.equal(comparisons, 1, "only the last available attempt may compare credentials");
     assert.equal(statuses.filter(status => status === 401).length, 1);
     assert.equal(statuses.filter(status => status === 429).length, 63);
+    assert.deepEqual(sql("SELECT count FROM rate_limits"), [{ count: 20 }]);
   });
 }
+
+for (const mode of ["bearer", "login"]) {
+  test(`concurrent valid ${mode} requests refund reservations without leaving a lockout`, async (t) => {
+    const { handlers, db, sql } = await sharedLimitFixture(t);
+    const env = adminEnv(db);
+    t.mock.method(Date, "now", () => 1800000000000);
+    const call = async (i) => {
+      const req = authRequest(mode === "login" ? "POST" : "GET", "/session",
+        env.WAITLIST_ADMIN_TOKEN, "192.0.2.92");
+      if (mode === "login") return (await handlers[i % 2].login({ request: req, env })).status;
+      const gate = await handlers[i % 2].authorize(req, env);
+      return gate.ok ? 200 : gate.response.status;
+    };
+    const statuses = await Promise.all(Array.from({ length: 64 }, (_, i) => call(i)));
+    assert.equal(statuses.filter(status => status === 200).length, 20);
+    assert.equal(statuses.filter(status => status === 429).length, 44);
+    assert.deepEqual(sql("SELECT count FROM rate_limits"), [{ count: 0 }]);
+    assert.equal(await call(0), 200);
+  });
+}
+
+test("login uses one atomic reservation and no preliminary limiter read", async (t) => {
+  const { db } = await sharedLimitFixture(t);
+  const queries = [];
+  const prepare = db.prepare;
+  db.prepare = (query) => {
+    queries.push(query);
+    return prepare(query);
+  };
+  await loginSession(adminEnv(db));
+  assert.equal(queries.length, 5, "reservation cleanup, reservation, refund, session cleanup and insertion");
+  assert.equal(queries.filter(query => query.startsWith("SELECT") && query.includes("rate_limits")).length, 0);
+  assert.equal(queries.filter(query => query.startsWith("DELETE FROM rate_limits")).length, 1);
+});
 
 test("migrations index rate limit cleanup by window_start", async (t) => {
   const { sql } = await sharedLimitFixture(t);

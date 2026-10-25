@@ -359,23 +359,19 @@ export function clientIp(request) {
   return (request.headers.get("cf-connecting-ip") || "").trim();
 }
 
-export async function hitLimit(db, bucket, ip, limit, windowMs, record = true, now = Date.now()) {
+export async function hitLimit(db, bucket, ip, limit, windowMs, now = Date.now()) {
   const windowStart = Math.floor(now / windowMs) * windowMs;
   const key = `${bucket}:${await sessionHash(ip)}`;
   // Cleanup runs with requests, so no scheduled job or isolate-local state is needed.
   await db.prepare("DELETE FROM rate_limits WHERE window_start < ?")
     .bind(now - 86400000).run();
-  if (record) {
-    const row = await db.prepare(
-      "INSERT INTO rate_limits (key, window_start, count) VALUES (?, ?, 1) " +
-      "ON CONFLICT(key, window_start) DO UPDATE SET count = count + 1 RETURNING count"
-    ).bind(key, windowStart).first();
-    return row.count > limit;
-  }
+  // A rejected reservation must not consume budget that cannot be refunded.
   const row = await db.prepare(
-    "SELECT count FROM rate_limits WHERE key = ? AND window_start = ?"
-  ).bind(key, windowStart).first();
-  return (row?.count || 0) >= limit;
+    "INSERT INTO rate_limits (key, window_start, count) VALUES (?, ?, 1) " +
+    "ON CONFLICT(key, window_start) DO UPDATE SET count = count + 1 " +
+    "WHERE count < ? RETURNING count"
+  ).bind(key, windowStart, limit).first();
+  return !row;
 }
 
 export async function postRateLimited(request, db) {
@@ -384,10 +380,6 @@ export async function postRateLimited(request, db) {
   } catch {
     return false;
   }
-}
-
-export function loginRateLimited(request, db) {
-  return hitLimit(db, "login", clientIp(request), LOGIN_LIMIT, LOGIN_WINDOW_MS, false);
 }
 
 export function rejectCrossSiteAdmin(request) {
@@ -429,7 +421,7 @@ export async function requireAdmin(request, env, token) {
   const attemptTime = Date.now();
   try {
     // Reserve actual token guesses atomically; session checks never use this budget.
-    if (await hitLimit(env.DB, "login", clientIp(request), LOGIN_LIMIT, LOGIN_WINDOW_MS, true, attemptTime)) {
+    if (await hitLimit(env.DB, "login", clientIp(request), LOGIN_LIMIT, LOGIN_WINDOW_MS, attemptTime)) {
       return { ok: false, response: jsonResponse(429, { ok: false, error: "rate_limited" }) };
     }
   } catch {
