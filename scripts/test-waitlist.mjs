@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import test from "node:test";
 import "./test-admin.mjs";
 import "./test-forms.mjs";
@@ -581,7 +581,7 @@ test("session cookie contains a random id and D1 stores only its hash for 12 hou
   assert.match(cookie, /Secure/);
   assert.match(cookie, /SameSite=Strict/);
   assert.match(cookie, /Path=\/(?:;|$)/);
-  const hash = createHash("sha256").update(id).digest("hex");
+  const hash = createHmac("sha256", env.WAITLIST_ADMIN_TOKEN).update(id).digest("hex");
   assert.equal(db.sessions.size, 1);
   const row = db.sessions.get(hash);
   assert.deepEqual(Object.keys(row).sort(), ["created_at", "expires_at", "session_hash"]);
@@ -594,13 +594,14 @@ test("session cookie contains a random id and D1 stores only its hash for 12 hou
   assert.equal(db.sessions.size, 2);
 });
 
-for (const state of ["valid", "logged out", "expired", "legacy token", "unknown id"]) {
+for (const state of ["valid", "logged out", "expired", "legacy token", "unknown id", "rotated token"]) {
   test(`admin routes enforce ${state} sessions`, async (t) => {
     const db = memoryDb();
     const env = adminEnv(db);
     const now = Date.now();
     t.mock.method(Date, "now", () => now);
     const { id } = await loginSession(env);
+    if (state === "rotated token") env.WAITLIST_ADMIN_TOKEN = "rotated-test-token";
     if (state === "logged out") {
       const logout = await onSessionDelete({
         request: authRequest("DELETE", "/session", id, "", true), env,
@@ -637,7 +638,7 @@ test("login cleans up expired sessions without deleting live sessions", async (t
   t.mock.method(Date, "now", () => now + 12 * 60 * 60 * 1000);
   await loginSession(env);
   assert.equal(db.sessions.size, 2);
-  assert.equal(db.sessions.has(createHash("sha256").update(old.id).digest("hex")), false);
+  assert.equal(db.sessions.has(createHmac("sha256", env.WAITLIST_ADMIN_TOKEN).update(old.id).digest("hex")), false);
   const probe = await onSessionGet({ request: authRequest("GET", "/session", live.id, "", true), env });
   assert.equal(probe.status, 200);
 });
@@ -653,6 +654,27 @@ test("logout revokes only the supplied session", async () => {
   assert.equal(env.DB.sessions.size, 1);
   const probe = await onSessionGet({ request: authRequest("GET", "/session", second.id, "", true), env });
   assert.equal(probe.status, 200);
+});
+
+test("token rotation rejects old credentials and allows new sessions to log out", async () => {
+  const env = adminEnv(memoryDb());
+  const oldToken = env.WAITLIST_ADMIN_TOKEN;
+  const old = await loginSession(env);
+  env.WAITLIST_ADMIN_TOKEN = "rotated-test-token";
+  const bearer = await onSessionGet({ request: authRequest("GET", "/session", oldToken), env });
+  assert.equal(bearer.status, 401);
+  const fresh = await loginSession(env);
+  for (const [id, status] of [[old.id, 401], [fresh.id, 200]]) {
+    const probe = await onSessionGet({ request: authRequest("GET", "/session", id, "", true), env });
+    assert.equal(probe.status, status);
+  }
+  const logout = await onSessionDelete({
+    request: authRequest("DELETE", "/session", fresh.id, "", true), env,
+  });
+  assert.equal(logout.status, 200);
+  assert.match(logout.headers.get("set-cookie"), /Max-Age=0/);
+  const replay = await onSessionGet({ request: authRequest("GET", "/session", fresh.id, "", true), env });
+  assert.equal(replay.status, 401);
 });
 
 test("session database failures deny access and do not report successful login or logout", async () => {
