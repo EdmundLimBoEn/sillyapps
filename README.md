@@ -63,7 +63,7 @@ curl -fsS -H "Authorization: Bearer $WAITLIST_ADMIN_TOKEN" \
 
 If the secret is unset, that route returns 404 on purpose.
 
-CSV columns are `email,name,created_at,emailed,note`. `emailed` is `1` or `0`. JSON includes those fields plus `count`, `total`, and a 7-day `days` series. Search with `q`, `from`, `to` (YYYY-MM-DD), and `emailed=0|1`.
+CSV columns are `email,name,created_at,emailed,note`. `emailed` is `1` or `0`. JSON includes those fields plus the filtered `count`, overall `total`, and a 7-day `days` series. Both JSON and CSV return one page: `limit` defaults to 100 (maximum 100), and `offset` defaults to 0. Invalid pagination returns 400. JSON provides `limit`, `offset`, and `next_offset` (null on the last page); CSV provides `X-Next-Offset` (empty on the last page). Keep filters unchanged and follow the next offset to export every page, omitting repeated CSV headers. Rows are ordered by creation time then email; changes to the waitlist between requests can shift offsets. The board has Previous/Next controls and downloads only the current page. Search with `q`, `from`, `to` (YYYY-MM-DD), and `emailed=0|1`.
 
 ## Waitlist admin
 

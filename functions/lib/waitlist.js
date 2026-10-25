@@ -479,22 +479,67 @@ function dateOnly(value) {
     : null;
 }
 
-export const WAITLIST_SELECT_ADMIN =
-  "SELECT email, name, created_at, emailed, note FROM waitlist ORDER BY created_at ASC";
-export const WAITLIST_SELECT_BASE =
-  "SELECT email, name, created_at FROM waitlist ORDER BY created_at ASC";
+export function parsePagination(params) {
+  const limit = params.get("limit") ?? "100";
+  const offset = params.get("offset") ?? "0";
+  if (!/^\d+$/.test(limit) || !/^\d+$/.test(offset) ||
+      !Number.isSafeInteger(Number(limit)) || !Number.isSafeInteger(Number(offset)) ||
+      Number(limit) < 1 || Number(limit) > 100) return null;
+  return { limit: Number(limit), offset: Number(offset) };
+}
 
-export async function loadSignups(db) {
+export async function loadSignups(db, query, page) {
+  async function load(adminFields) {
+    const clauses = [];
+    const binds = [];
+    if (query.from) {
+      clauses.push("substr(created_at, 1, 10) >= ?");
+      binds.push(query.from);
+    }
+    if (query.to) {
+      clauses.push("substr(created_at, 1, 10) <= ?");
+      binds.push(query.to);
+    }
+    if (query.emailed != null) {
+      clauses.push(`${adminFields ? "emailed" : "0"} = ?`);
+      binds.push(query.emailed);
+    }
+    const where = clauses.length ? ` WHERE ${clauses.join(" AND ")}` : "";
+    const fields = adminFields ? "emailed, note" : "0 AS emailed, NULL AS note";
+    const select = `SELECT email, name, created_at, ${fields} FROM waitlist${where} ORDER BY created_at ASC, email ASC LIMIT ? OFFSET ?`;
+    let rows = [];
+    let count = 0;
+    if (query.q) {
+      // SQLite lower() only handles ASCII. Use the same Unicode lowercasing as
+      // parseListQuery, including for existing rows and pre-migration schemas.
+      // Filter before applying the requested offset, retaining only one page.
+      const batchSize = 100;
+      for (let offset = 0; ; offset += batchSize) {
+        const result = await db.prepare(select).bind(...binds, batchSize, offset).all();
+        const batch = result.results || [];
+        for (const row of filterSignups(batch, query)) {
+          if (count >= page.offset && rows.length < page.limit) rows.push(row);
+          count += 1;
+        }
+        if (batch.length < batchSize) break;
+      }
+    } else {
+      const result = await db.prepare(select).bind(...binds, page.limit, page.offset).all();
+      rows = result.results || [];
+      const matched = await db.prepare(`SELECT COUNT(*) AS count FROM waitlist${where}`).bind(...binds).first();
+      count = matched.count;
+    }
+    const total = await db.prepare("SELECT COUNT(*) AS count FROM waitlist").bind().first();
+    const days = lastSevenDays([]);
+    const daily = await db.prepare(
+      "SELECT substr(created_at, 1, 10) AS day, COUNT(*) AS count FROM waitlist WHERE substr(created_at, 1, 10) >= ? AND substr(created_at, 1, 10) <= ? GROUP BY substr(created_at, 1, 10)"
+    ).bind(days[0].day, days[6].day).all();
+    for (const day of days) day.count = (daily.results || []).find(row => row.day === day.day)?.count || 0;
+    return { rows, adminFields, count, total: total.count, days };
+  }
   try {
-    const result = await db.prepare(WAITLIST_SELECT_ADMIN).all();
-    return { rows: result.results || [], adminFields: true };
+    return await load(true);
   } catch {
-    const result = await db.prepare(WAITLIST_SELECT_BASE).all();
-    const rows = (result.results || []).map((row) => ({
-      ...row,
-      emailed: 0,
-      note: null,
-    }));
-    return { rows, adminFields: false };
+    return load(false);
   }
 }

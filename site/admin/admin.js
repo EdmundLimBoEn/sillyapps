@@ -16,6 +16,10 @@ let authGeneration = 0;
 let boardGeneration = 0;
 let authController = new AbortController();
 let adminFields = true;
+let pageOffset = 0;
+let nextOffset = null;
+const previousBtn = document.querySelector("[data-previous]");
+const nextBtn = document.querySelector("[data-next]");
 
 function setStatus(el, kind, message) {
   if (!el) {
@@ -76,6 +80,8 @@ function showLogin() {
   boardView.hidden = true;
   logoutBtn.hidden = true;
   adminFields = true;
+  pageOffset = 0;
+  nextOffset = null;
   rowsEl.replaceChildren();
   countEl.textContent = "";
   sparkLine.setAttribute("points", "");
@@ -184,12 +190,13 @@ function renderRows(signups) {
   }
 }
 
-async function loadBoard({ clearStatus = false } = {}) {
+async function loadBoard({ offset = pageOffset, clearStatus = false } = {}) {
   const generation = authGeneration;
   const requestGeneration = ++boardGeneration;
   const isCurrent = () => requestGeneration === boardGeneration;
   const params = queryString();
   params.set("format", "json");
+  params.set("offset", offset);
   const res = await api(`/api/waitlist?${params.toString()}`, {}, isCurrent);
   if (!res) return false;
   if (res.status === 404) {
@@ -208,11 +215,14 @@ async function loadBoard({ clearStatus = false } = {}) {
   migrationBanner.hidden = adminFields;
   const total = payload.total ?? payload.signups.length;
   const count = payload.count ?? payload.signups.length;
-  if (count === total) {
-    countEl.textContent = total === 1 ? "1 signup" : `${total} signups`;
-  } else {
-    countEl.textContent = `Showing ${count} of ${total}`;
-  }
+  pageOffset = payload.offset ?? 0;
+  nextOffset = payload.next_offset ?? null;
+  previousBtn.disabled = pageOffset === 0;
+  nextBtn.disabled = nextOffset == null;
+  const shown = payload.signups.length;
+  countEl.textContent = shown
+    ? `Showing ${pageOffset + 1}–${pageOffset + shown} of ${count} matches (${total} signups)`
+    : `0 matches on this page (${total} signups)`;
   drawSpark(payload.days || []);
   renderRows(payload.signups || []);
   showBoard();
@@ -269,6 +279,7 @@ async function download(format) {
   const generation = authGeneration;
   const params = queryString();
   params.set("format", format);
+  params.set("offset", pageOffset);
   const res = await api(`/api/waitlist?${params.toString()}`);
   if (!res) return;
   if (!res.ok) {
@@ -339,16 +350,19 @@ logoutBtn.addEventListener("click", async () => {
 filtersForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   setStatus(boardStatus, "pending", "Filtering…");
-  await loadBoard({ clearStatus: true });
+  await loadBoard({ offset: 0, clearStatus: true });
 });
 
 filtersForm.querySelector("[data-clear]").addEventListener("click", async () => {
   filtersForm.reset();
-  await loadBoard({ clearStatus: true });
+  await loadBoard({ offset: 0, clearStatus: true });
 });
 
 document.querySelectorAll("[data-export]").forEach((button) => {
   button.addEventListener("click", () => download(button.dataset.export));
 });
+
+previousBtn.addEventListener("click", () => loadBoard({ offset: Math.max(0, pageOffset - 100) }));
+nextBtn.addEventListener("click", () => nextOffset == null ? undefined : loadBoard({ offset: nextOffset }));
 
 loadBoard();

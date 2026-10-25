@@ -154,7 +154,63 @@ for (const operation of ["filter", "delete"]) {
   });
 }
 
+
+test("board navigates pages and resets pagination when filtering", async () => {
+  const app = await browser();
+  await app.login();
+  const page = (offset, next) => Response.json({ ...listed, offset, next_offset: next, count: 205, total: 205 });
+  app.queue.push(page(0, 100));
+  await app.get("filters").fire("submit");
+  assert.equal(app.get("previous").disabled, true);
+  assert.equal(app.get("next").disabled, false);
+  app.queue.push(page(100, 200));
+  await app.get("next").fire("click");
+  assert.equal(new URL(app.calls.at(-1).url, "https://example.com").searchParams.get("offset"), "100");
+  assert.equal(app.get("previous").disabled, false);
+  app.queue.push(page(0, 100));
+  await app.get("previous").fire("click");
+  assert.equal(new URL(app.calls.at(-1).url, "https://example.com").searchParams.get("offset"), "0");
+  app.queue.push(page(100, null));
+  await app.get("next").fire("click");
+  assert.equal(app.get("next").disabled, true);
+  app.get("filters").fields.q = "ada";
+  app.queue.push(page(0, null));
+  await app.get("filters").fire("submit");
+  const url = new URL(app.calls.at(-1).url, "https://example.com");
+  assert.equal(url.searchParams.get("offset"), "0");
+  assert.equal(url.searchParams.get("q"), "ada");
+});
 const networkError = () => new TypeError("Failed to fetch");
+
+for (const phase of ["headers", "body"]) {
+  test(`page ${phase} failure preserves pagination and permits retry`, async () => {
+    const app = await browser(Response.json({
+      ...listed, offset: 0, next_offset: 100, count: 101, total: 101,
+    }));
+    const row = app.get("rows").children[0];
+    const count = app.get("count").textContent;
+    app.queue.push(phase === "headers" ? networkError() : {
+      ok: true, status: 200, json: async () => { throw networkError(); },
+    });
+    await app.get("next").fire("click");
+    assert.equal(app.get("board-status").dataset.kind, "err");
+    assert.match(app.get("board-status").textContent, /try again/i);
+    assert.equal(app.get("rows").children[0], row);
+    assert.equal(app.get("count").textContent, count);
+    assert.equal(app.get("previous").disabled, true);
+    assert.equal(app.get("next").disabled, false);
+    app.queue.push(Response.json({
+      signups: [{ email: "last@example.com" }], offset: 100,
+      next_offset: null, count: 101, total: 101,
+    }));
+    await app.get("next").fire("click");
+    assert.equal(new URL(app.calls.at(-1).url, "https://example.com").searchParams.get("offset"), "100");
+    assert.equal(app.get("rows").children[0].dataset.email, "last@example.com");
+    assert.equal(app.get("count").textContent, "Showing 101–101 of 101 matches (101 signups)");
+    assert.equal(app.get("previous").disabled, false);
+    assert.equal(app.get("next").disabled, true);
+  });
+}
 
 test("initial load network failure shows a retryable login error", async () => {
   const app = await browser(networkError());
@@ -281,7 +337,7 @@ for (const phase of ["headers", "body"]) {
       delayed.resolve(phase === "headers" ? Response.json(stale) : stale);
       await older;
       assert.equal(app.get("rows").children[0].dataset.email, "new@example.com");
-      assert.equal(app.get("count").textContent, "Showing 1 of 2");
+      assert.equal(app.get("count").textContent, "Showing 1–1 of 1 matches (2 signups)");
       assert.equal(app.get("migration-banner").hidden, true);
       assert.equal(app.get("spark").hidden, false);
       assert.equal(app.get("board-status").textContent, "");
@@ -309,6 +365,33 @@ for (const status of [200, 401, 404, 500]) {
 }
 
 for (const phase of ["headers", "body"]) {
+  test(`stale page ${phase} cannot undo a filter pagination reset`, async () => {
+    const app = await browser();
+    await app.login();
+    app.queue.push(Response.json({ ...listed, offset: 100, next_offset: 200, count: 205, total: 205 }));
+    await app.get("filters").fire("submit");
+    const delayed = deferred();
+    const stale = { ...listed, offset: 200, next_offset: null, count: 205, total: 205 };
+    app.queue.push(phase === "headers" ? delayed.promise : {
+      ok: true, status: 200, json: () => delayed.promise,
+    });
+    const older = app.get("next").fire("click");
+    assert.equal(new URL(app.calls.at(-1).url, "https://example.com").searchParams.get("offset"), "200");
+    await tick();
+    app.get("filters").fields.q = "new";
+    app.queue.push(Response.json({
+      signups: [{ email: "new@example.com" }], offset: 0, next_offset: 100, count: 101, total: 205,
+    }));
+    await app.get("filters").fire("submit");
+    assert.equal(new URL(app.calls.at(-1).url, "https://example.com").searchParams.get("offset"), "0");
+    delayed.resolve(phase === "headers" ? Response.json(stale) : stale);
+    await older;
+    assert.equal(app.get("rows").children[0].dataset.email, "new@example.com");
+    assert.equal(app.get("count").textContent, "Showing 1–1 of 101 matches (205 signups)");
+    assert.equal(app.get("previous").disabled, true);
+    assert.equal(app.get("next").disabled, false);
+    assert.equal(app.get("board-status").textContent, "");
+  });
   for (const newerAction of ["filter", "clear"]) {
     for (const pending of [true, false]) {
       test(`stale filter ${phase} failure leaves newer ${newerAction} ${pending ? "pending" : "results"} alone`, async () => {

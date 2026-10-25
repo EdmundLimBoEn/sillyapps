@@ -110,8 +110,8 @@
         </form>
 
         <div class="admin-exports">
-          <button class="btn btn-ghost" type="button" data-export="csv">Download CSV</button>
-          <button class="btn btn-ghost" type="button" data-export="json">Download JSON</button>
+          <button class="btn btn-ghost" type="button" data-export="csv">Download page CSV</button>
+          <button class="btn btn-ghost" type="button" data-export="json">Download page JSON</button>
         </div>
 
         <p class="form-status" data-board-status role="status" aria-live="polite"></p>
@@ -134,6 +134,10 @@
           </table>
         </div>
 
+        <nav aria-label="Waitlist pages">
+          <button class="btn btn-ghost" type="button" data-previous disabled>Previous</button>
+          <button class="btn btn-ghost" type="button" data-next disabled>Next</button>
+        </nav>
         <p class="admin-empty" data-empty hidden>No signups match those filters.</p>
         <p class="privacy admin-footnote">
           Public signup still uses a hidden company honeypot. Production also
