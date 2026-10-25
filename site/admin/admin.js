@@ -52,7 +52,9 @@ async function api(url, init = {}, isCurrent = () => true) {
     return res;
   } catch (error) {
     if (generation !== authGeneration || !isCurrent() || error.name === "AbortError") return null;
-    throw error;
+    setStatus(loginView.hidden ? boardStatus : loginStatus, "err",
+      "Request failed. Check your connection and try again.");
+    return null;
   }
 }
 
@@ -195,10 +197,11 @@ async function loadBoard({ clearStatus = false } = {}) {
     setStatus(loginStatus, "err", "WAITLIST_ADMIN_TOKEN is not set on this deploy.");
     return false;
   }
-  const payload = await res.json().catch(() => ({}));
+  const payload = await res.json().catch(() => null);
   if (generation !== authGeneration || !isCurrent()) return;
-  if (!res.ok || payload.ok === false) {
-    setStatus(boardStatus, "err", "Could not load the waitlist.");
+  if (!res.ok || !payload || payload.ok === false) {
+    setStatus(loginView.hidden ? boardStatus : loginStatus, "err",
+      "Could not load the waitlist. Please try again.");
     return false;
   }
   adminFields = payload.admin_fields !== false;
@@ -225,9 +228,9 @@ async function patchRow(email, patch, control) {
     body: JSON.stringify({ email, ...patch }),
   });
   if (!res) return;
-  const payload = await res.json().catch(() => ({}));
+  const payload = await res.json().catch(() => null);
   if (generation !== authGeneration) return;
-  if (!res.ok || payload.ok === false) {
+  if (!res.ok || !payload || payload.ok === false) {
     setStatus(boardStatus, "err", "Could not save that row.");
     await loadBoard();
     return;
@@ -252,9 +255,9 @@ async function deleteRow(email) {
     method: "DELETE",
   });
   if (!res) return;
-  const payload = await res.json().catch(() => ({}));
+  const payload = await res.json().catch(() => null);
   if (generation !== authGeneration) return;
-  if (!res.ok || payload.ok === false) {
+  if (!res.ok || !payload || payload.ok === false) {
     setStatus(boardStatus, "err", "Could not delete that row.");
     return;
   }
@@ -273,7 +276,11 @@ async function download(format) {
     return;
   }
   const blob = await res.blob().catch(() => null);
-  if (generation !== authGeneration || !blob) return;
+  if (generation !== authGeneration) return;
+  if (!blob) {
+    setStatus(boardStatus, "err", "Could not export. Please try again.");
+    return;
+  }
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
