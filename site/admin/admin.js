@@ -13,6 +13,7 @@ const sparkLine = document.querySelector("[data-spark-line]");
 const migrationBanner = document.querySelector("[data-migration-banner]");
 
 let authGeneration = 0;
+let boardGeneration = 0;
 let authController = new AbortController();
 let adminFields = true;
 let pageOffset = 0;
@@ -34,7 +35,7 @@ function resetAuth() {
   authController = new AbortController();
 }
 
-async function api(url, init = {}) {
+async function api(url, init = {}, isCurrent = () => true) {
   const generation = authGeneration;
   const headers = { ...(init.headers || {}) };
   if (init.body && !headers["content-type"]) {
@@ -47,14 +48,14 @@ async function api(url, init = {}) {
       headers,
       signal: authController.signal,
     });
-    if (generation !== authGeneration) return null;
+    if (generation !== authGeneration || !isCurrent()) return null;
     if (res.status === 401 && init.method !== "POST") {
       showLogin();
       return null;
     }
     return res;
   } catch (error) {
-    if (generation !== authGeneration || error.name === "AbortError") return null;
+    if (generation !== authGeneration || !isCurrent() || error.name === "AbortError") return null;
     throw error;
   }
 }
@@ -187,12 +188,14 @@ function renderRows(signups) {
   }
 }
 
-async function loadBoard(offset = pageOffset) {
+async function loadBoard({ offset = pageOffset, clearStatus = false } = {}) {
   const generation = authGeneration;
+  const requestGeneration = ++boardGeneration;
+  const isCurrent = () => requestGeneration === boardGeneration;
   const params = queryString();
   params.set("format", "json");
   params.set("offset", offset);
-  const res = await api(`/api/waitlist?${params.toString()}`);
+  const res = await api(`/api/waitlist?${params.toString()}`, {}, isCurrent);
   if (!res) return false;
   if (res.status === 404) {
     showLogin();
@@ -200,7 +203,7 @@ async function loadBoard(offset = pageOffset) {
     return false;
   }
   const payload = await res.json().catch(() => ({}));
-  if (generation !== authGeneration) return;
+  if (generation !== authGeneration || !isCurrent()) return;
   if (!res.ok || payload.ok === false) {
     setStatus(boardStatus, "err", "Could not load the waitlist.");
     return false;
@@ -220,6 +223,7 @@ async function loadBoard(offset = pageOffset) {
   drawSpark(payload.days || []);
   renderRows(payload.signups || []);
   showBoard();
+  if (clearStatus) setStatus(boardStatus, "", "");
   return true;
 }
 
@@ -338,23 +342,20 @@ logoutBtn.addEventListener("click", async () => {
 
 filtersForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const generation = authGeneration;
   setStatus(boardStatus, "pending", "Filtering…");
-  await loadBoard(0);
-  if (generation !== authGeneration) return;
-  setStatus(boardStatus, "", "");
+  await loadBoard({ offset: 0, clearStatus: true });
 });
 
 filtersForm.querySelector("[data-clear]").addEventListener("click", async () => {
   filtersForm.reset();
-  await loadBoard(0);
+  await loadBoard({ offset: 0, clearStatus: true });
 });
 
 document.querySelectorAll("[data-export]").forEach((button) => {
   button.addEventListener("click", () => download(button.dataset.export));
 });
 
-previousBtn.addEventListener("click", () => loadBoard(Math.max(0, pageOffset - 100)));
-nextBtn.addEventListener("click", () => nextOffset == null ? undefined : loadBoard(nextOffset));
+previousBtn.addEventListener("click", () => loadBoard({ offset: Math.max(0, pageOffset - 100) }));
+nextBtn.addEventListener("click", () => nextOffset == null ? undefined : loadBoard({ offset: nextOffset }));
 
 loadBoard();

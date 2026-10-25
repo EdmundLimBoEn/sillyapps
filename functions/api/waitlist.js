@@ -80,7 +80,11 @@ export async function onRequestGet(context) {
     const params = new URL(context.request.url).searchParams;
     const page = parsePagination(params);
     if (!page) return jsonResponse(400, { ok: false, error: "invalid_pagination" });
-    const loaded = await loadSignups(db, parseListQuery(params), page);
+    const query = parseListQuery(params);
+    if (!query.ok) {
+      return jsonResponse(400, { ok: false, error: query.code });
+    }
+    const loaded = await loadSignups(db, query, page);
     const matched = loaded.rows.map(presentSignup);
     const nextOffset = page.offset + matched.length < loaded.count ? page.offset + page.limit : null;
     const format = params.get("format");
@@ -142,19 +146,11 @@ export async function onRequestPatch(context) {
   binds.push(parsed.email);
 
   try {
-    const result = await db
-      .prepare(`UPDATE waitlist SET ${sets.join(", ")} WHERE email = ?`)
-      .bind(...binds)
-      .run();
-    const changes = result?.meta?.changes ?? 0;
-    if (!changes) {
-      return jsonResponse(404, { ok: false, error: "not_found" });
-    }
     const row = await db
       .prepare(
-        "SELECT email, name, created_at, emailed, note FROM waitlist WHERE email = ?"
+        `UPDATE waitlist SET ${sets.join(", ")} WHERE email = ? RETURNING email, name, created_at, emailed, note`
       )
-      .bind(parsed.email)
+      .bind(...binds)
       .first();
     if (!row) {
       return jsonResponse(404, { ok: false, error: "not_found" });
