@@ -9,6 +9,7 @@ import {
   parseSignup,
   postRateLimited,
   presentSignup,
+  rateLimitedResponse,
   readJson,
   readSignupBody,
   requireAdmin,
@@ -28,8 +29,9 @@ function getDb(context) {
 }
 
 export async function onRequestPost(context) {
-  if (await postRateLimited(context.request, context.env.DB)) {
-    return jsonResponse(429, { ok: false, error: "rate_limited" });
+  const retryAfter = await postRateLimited(context.request, context.env.DB);
+  if (retryAfter) {
+    return rateLimitedResponse(retryAfter);
   }
 
   const body = await readSignupBody(context.request);
