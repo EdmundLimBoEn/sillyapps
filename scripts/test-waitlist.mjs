@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import test from "node:test";
 import "./test-admin.mjs";
 import "./test-forms.mjs";
+import "./test-deploy.mjs";
 import {
   onRequestDelete,
   onRequestGet,

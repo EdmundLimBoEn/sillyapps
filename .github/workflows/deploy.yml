@@ -27,7 +27,7 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          wranglerVersion: "4.131.2"
+          wranglerVersion: "4.139.0"
           # Deploy from repo root so functions/ + wrangler.jsonc ship together.
           # Do not use `pages deploy site` — that skips Pages Functions.
           command: pages deploy --project-name sillyapps --branch main
