@@ -24,18 +24,18 @@ function element() {
     querySelector() { return this.clear ||= element(); },
   };
 }
-async function browser() {
+async function browser(initialResponse) {
   const nodes = new Map();
   const get = (name) => {
     if (!nodes.has(name)) nodes.set(name, element());
     return nodes.get(name);
   };
   const calls = [];
-  const queue = [];
+  const queue = initialResponse ? [initialResponse] : [];
   vm.runInNewContext(source, {
     document: {
       querySelector: (selector) => get(selector.slice(6, -1)),
-      querySelectorAll: () => [], createElement: element,
+      querySelectorAll: () => [get("export")], createElement: element,
     },
     FormData: class {
       constructor(form) { this.fields = { ...form.fields }; }
@@ -47,7 +47,9 @@ async function browser() {
     fetch: async (url, init) => {
       calls.push({ url, ...init });
       // Deliberately ignore abort to exercise the generation guard as well.
-      return queue.length ? queue.shift() : Response.json({}, { status: 401 });
+      const response = queue.length ? queue.shift() : Response.json({}, { status: 401 });
+      if (response instanceof Error) throw response;
+      return response;
     },
   });
   await tick();
@@ -127,3 +129,102 @@ for (const operation of ["filter", "delete"]) {
     assert.equal(app.get("rows").children.length, 0);
   });
 }
+
+const networkError = () => new TypeError("Failed to fetch");
+
+test("initial load network failure shows a retryable login error", async () => {
+  const app = await browser(networkError());
+  assert.equal(app.get("login-status").dataset.kind, "err");
+  assert.match(app.get("login-status").textContent, /try again/i);
+  await app.login();
+});
+
+test("login network failure clears pending status and permits retry", async () => {
+  const app = await browser();
+  app.queue.push(networkError());
+  await app.get("login-form").fire("submit");
+  assert.equal(app.get("login-status").dataset.kind, "err");
+  assert.match(app.get("login-status").textContent, /try again/i);
+  await app.login();
+});
+
+for (const operation of ["filter", "clear", "note", "emailed", "delete", "export"]) {
+  test(`${operation} network failure is handled and leaves controls usable`, async () => {
+    const app = await browser();
+    await app.login();
+    const row = app.get("rows").children[0];
+    const control = operation === "note" ? row.children[4].children[0]
+      : operation === "emailed" ? row.children[3].children[0]
+      : operation === "delete" ? row.children[5].children[0]
+      : operation === "clear" ? app.get("filters").querySelector("[data-clear]")
+      : operation === "export" ? app.get("export") : app.get("filters");
+    const event = ["note", "emailed"].includes(operation) ? "change"
+      : operation === "filter" ? "submit" : "click";
+    app.queue.push(networkError());
+    await control.fire(event);
+    assert.equal(app.get("board-status").dataset.kind, "err");
+    assert.match(app.get("board-status").textContent, /try again/i);
+    assert.equal(app.get("rows").children[0], row);
+    assert.notEqual(control.disabled, true);
+    app.queue.push(Response.json(listed));
+    await app.get("filters").fire("submit");
+    assert.equal(app.get("board-status").textContent, "");
+  });
+}
+
+test("logout network failure clears private rows and reports failure", async () => {
+  const app = await browser();
+  await app.login();
+  app.queue.push(networkError());
+  await app.get("logout").fire("click");
+  assert.equal(app.get("rows").children.length, 0);
+  assert.equal(app.get("board").hidden, true);
+  assert.equal(app.get("login-status").dataset.kind, "err");
+});
+
+test("export body failure reports a retryable error", async () => {
+  const app = await browser();
+  await app.login();
+  app.queue.push({ ok: true, status: 200, blob: async () => { throw networkError(); } });
+  await app.get("export").fire("click");
+  assert.equal(app.get("board-status").dataset.kind, "err");
+  assert.match(app.get("board-status").textContent, /try again/i);
+});
+
+test("a stale network failure cannot overwrite logout status", async () => {
+  const app = await browser();
+  await app.login();
+  const delayed = deferred();
+  app.queue.push(delayed.promise);
+  const filtering = app.get("filters").fire("submit");
+  app.queue.push(Response.json({ ok: true }));
+  await app.get("logout").fire("click");
+  delayed.resolve(Promise.reject(networkError()));
+  await filtering;
+  assert.equal(app.get("login-status").textContent, "Logged out.");
+  assert.equal(app.get("board-status").textContent, "");
+});
+
+for (const operation of ["filter", "note", "delete"]) {
+  test(`${operation} interrupted response body reports failure`, async () => {
+    const app = await browser();
+    await app.login();
+    const row = app.get("rows").children[0];
+    app.queue.push({ ok: true, status: 200, json: async () => { throw networkError(); } });
+    if (operation === "filter") await app.get("filters").fire("submit");
+    else if (operation === "delete") await row.children[5].children[0].fire("click");
+    else {
+      app.queue.push(Response.json(listed));
+      await row.children[4].children[0].fire("change");
+    }
+    assert.equal(app.get("board-status").dataset.kind, "err");
+    assert.match(app.get("board-status").textContent, /Could not/);
+    assert.equal(app.get("rows").children.length, 1);
+  });
+}
+
+test("initial interrupted response body shows a visible login error", async () => {
+  const app = await browser({ ok: true, status: 200, json: async () => { throw networkError(); } });
+  assert.equal(app.get("login-status").dataset.kind, "err");
+  assert.match(app.get("login-status").textContent, /try again/i);
+});
