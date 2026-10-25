@@ -5,6 +5,7 @@ import {
   jsonResponse,
   loginRateLimited,
   readJson,
+  rateLimitedResponse,
   requireAdmin,
   rejectCrossSiteAdmin,
   sessionCookie,
@@ -22,8 +23,9 @@ export async function onRequestPost(context) {
   if (body instanceof Response) return body;
   const token = typeof body?.token === "string" ? body.token : "";
   try {
-    if (token && await loginRateLimited(context.request, context.env.DB)) {
-      return jsonResponse(429, { ok: false, error: "rate_limited" });
+    const retryAfter = token && await loginRateLimited(context.request, context.env.DB);
+    if (retryAfter) {
+      return rateLimitedResponse(retryAfter);
     }
   } catch {
     return jsonResponse(503, { ok: false, error: "unavailable" });

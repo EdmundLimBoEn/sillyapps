@@ -170,6 +170,12 @@ export function jsonResponse(status, body) {
   });
 }
 
+export function rateLimitedResponse(retryAfter) {
+  const response = jsonResponse(429, { ok: false, error: "rate_limited" });
+  response.headers.set("Retry-After", String(retryAfter));
+  return response;
+}
+
 export function csvCell(value) {
   let text = value == null ? "" : String(value);
   if (/^[=+\-@]/.test(text)) {
@@ -365,17 +371,21 @@ export async function hitLimit(db, bucket, ip, limit, windowMs, record = true, n
   // Cleanup runs with requests, so no scheduled job or isolate-local state is needed.
   await db.prepare("DELETE FROM rate_limits WHERE window_start < ?")
     .bind(now - 86400000).run();
+  let limited;
   if (record) {
     const row = await db.prepare(
       "INSERT INTO rate_limits (key, window_start, count) VALUES (?, ?, 1) " +
       "ON CONFLICT(key, window_start) DO UPDATE SET count = count + 1 RETURNING count"
     ).bind(key, windowStart).first();
-    return row.count > limit;
+    limited = row.count > limit;
+  } else {
+    const row = await db.prepare(
+      "SELECT count FROM rate_limits WHERE key = ? AND window_start = ?"
+    ).bind(key, windowStart).first();
+    limited = (row?.count || 0) >= limit;
   }
-  const row = await db.prepare(
-    "SELECT count FROM rate_limits WHERE key = ? AND window_start = ?"
-  ).bind(key, windowStart).first();
-  return (row?.count || 0) >= limit;
+  // Return seconds until this checked window expires, rounding up for clients.
+  return limited ? Math.max(1, Math.ceil((windowStart + windowMs - Date.now()) / 1000)) : 0;
 }
 
 export async function postRateLimited(request, db) {
@@ -429,8 +439,9 @@ export async function requireAdmin(request, env, token) {
   const attemptTime = Date.now();
   try {
     // Reserve actual token guesses atomically; session checks never use this budget.
-    if (await hitLimit(env.DB, "login", clientIp(request), LOGIN_LIMIT, LOGIN_WINDOW_MS, true, attemptTime)) {
-      return { ok: false, response: jsonResponse(429, { ok: false, error: "rate_limited" }) };
+    const retryAfter = await hitLimit(env.DB, "login", clientIp(request), LOGIN_LIMIT, LOGIN_WINDOW_MS, true, attemptTime);
+    if (retryAfter) {
+      return { ok: false, response: rateLimitedResponse(retryAfter) };
     }
   } catch {
     return { ok: false, response: jsonResponse(503, { ok: false, error: "unavailable" }) };
