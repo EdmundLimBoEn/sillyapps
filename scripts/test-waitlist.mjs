@@ -795,6 +795,43 @@ function authRequest(method, suffix, token, ip, cookie = false) {
   });
 }
 
+for (const [name, limit, handler, makeRequest, allowedStatus] of [
+  ["signup", 8, onRequestPost, () => request("https://sillyapps.co/api/waitlist", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email: "retry@example.com" }),
+  }), 200],
+  ...adminRoutes.map(([method, suffix, handler]) => [
+    `${method} ${suffix || "waitlist"}`, 20, handler,
+    () => authRequest(method, suffix, "bad", "192.0.2.80"), 401,
+  ]),
+]) {
+  test(`${name} Retry-After counts down to the limiter window reset`, async (t) => {
+    const env = adminEnv(memoryDb());
+    const start = 1800000000000;
+    let now = start + 123456;
+    t.mock.method(Date, "now", () => now);
+    const call = () => handler({ request: makeRequest(), env });
+    for (let i = 0; i < limit; i++) {
+      const response = await call();
+      assert.equal(response.status, allowedStatus);
+      assert.equal(response.headers.get("retry-after"), null);
+    }
+    for (const [offset, expected] of [[123456, "477"], [599000, "1"], [599999, "1"]]) {
+      now = start + offset;
+      const response = await call();
+      assert.equal(response.status, 429);
+      assert.equal(response.headers.get("retry-after"), expected);
+      assert.equal(response.headers.get("cache-control"), "no-store");
+      assert.deepEqual(await response.json(), { ok: false, error: "rate_limited" });
+    }
+    now = start + 600000;
+    const response = await call();
+    assert.equal(response.status, allowedStatus);
+    assert.equal(response.headers.get("retry-after"), null);
+  });
+}
+
 for (const [index, [method, suffix, handler]] of adminRoutes.entries()) {
   for (const cookie of [false, true]) {
     test(`${method} ${suffix || "waitlist"} counts only failed auth (${cookie ? "cookie" : "bearer"})`, async (t) => {
@@ -1035,9 +1072,17 @@ for (const [purpose, limit] of [["post", 8], ["login", 20]]) {
     for (let i = 0; i < limit; i++) {
       assert.equal((await call(i % 2)).status, purpose === "login" ? 401 : 200);
     }
-    assert.equal((await call(1, env.WAITLIST_ADMIN_TOKEN)).status, 429);
+    const throttled = await call(1, env.WAITLIST_ADMIN_TOKEN);
+    assert.equal(throttled.status, 429);
+    assert.equal(throttled.headers.get("retry-after"), "600");
+    now += 123456;
+    const retried = await call(0, env.WAITLIST_ADMIN_TOKEN);
+    assert.equal(retried.status, 429);
+    assert.equal(retried.headers.get("retry-after"), "477");
+    now -= 123456;
     const rows = sql("SELECT * FROM rate_limits");
     assert.equal(rows.length, 1);
+    assert.equal(rows[0].count, limit, "rejected retries must not consume reservations");
     assert.equal(rows[0].key, `${purpose}:${createHash("sha256").update(ip).digest("hex")}`);
     assert.equal(JSON.stringify(bindings).includes(ip), false);
     assert.equal(JSON.stringify(sql("SELECT * FROM waitlist") ).includes(ip), false);

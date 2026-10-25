@@ -176,6 +176,12 @@ export function jsonResponse(status, body) {
   });
 }
 
+export function rateLimitedResponse(retryAfter) {
+  const response = jsonResponse(429, { ok: false, error: "rate_limited" });
+  response.headers.set("Retry-After", String(retryAfter));
+  return response;
+}
+
 export function csvCell(value) {
   let text = value == null ? "" : String(value);
   if (/^[=+\-@]/.test(text)) {
@@ -386,7 +392,8 @@ export async function hitLimit(db, bucket, ip, limit, windowMs, now = Date.now()
     "ON CONFLICT(key, window_start) DO UPDATE SET count = count + 1 " +
     "WHERE count < ? RETURNING count"
   ).bind(key, windowStart, limit).first();
-  return !row;
+  // Return seconds until this checked window expires, rounding up for clients.
+  return row ? 0 : Math.max(1, Math.ceil((windowStart + windowMs - Date.now()) / 1000));
 }
 
 export async function postRateLimited(request, db) {
@@ -436,8 +443,9 @@ export async function requireAdmin(request, env, token) {
   const attemptTime = Date.now();
   try {
     // Reserve actual token guesses atomically; session checks never use this budget.
-    if (await hitLimit(env.DB, "login", clientIp(request), LOGIN_LIMIT, LOGIN_WINDOW_MS, attemptTime)) {
-      return { ok: false, response: jsonResponse(429, { ok: false, error: "rate_limited" }) };
+    const retryAfter = await hitLimit(env.DB, "login", clientIp(request), LOGIN_LIMIT, LOGIN_WINDOW_MS, attemptTime);
+    if (retryAfter) {
+      return { ok: false, response: rateLimitedResponse(retryAfter) };
     }
   } catch {
     return { ok: false, response: jsonResponse(503, { ok: false, error: "unavailable" }) };
