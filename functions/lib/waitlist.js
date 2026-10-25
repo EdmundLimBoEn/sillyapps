@@ -97,6 +97,12 @@ export function parseListQuery(searchParams) {
   const q = typeof qRaw === "string" ? qRaw.trim().toLowerCase() : "";
   const from = dateOnly(searchParams.get("from"));
   const to = dateOnly(searchParams.get("to"));
+  if (from === null || to === null) {
+    return { ok: false, code: "invalid_date" };
+  }
+  if (from && to && from > to) {
+    return { ok: false, code: "invalid_date_range" };
+  }
   const emailedParam = searchParams.get("emailed");
   let emailed = null;
   if (emailedParam === "1" || emailedParam === "true") {
@@ -104,7 +110,7 @@ export function parseListQuery(searchParams) {
   } else if (emailedParam === "0" || emailedParam === "false") {
     emailed = 0;
   }
-  return { q, from, to, emailed };
+  return { ok: true, q, from, to, emailed };
 }
 
 export function filterSignups(rows, query) {
@@ -456,7 +462,12 @@ function dateOnly(value) {
     return "";
   }
   const trimmed = value.trim();
-  return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : "";
+  if (!trimmed) return "";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return null;
+  const date = new Date(`${trimmed}T00:00:00.000Z`);
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === trimmed
+    ? trimmed
+    : null;
 }
 
 export const WAITLIST_SELECT_ADMIN =
