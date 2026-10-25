@@ -78,8 +78,11 @@ export async function onRequestGet(context) {
   }
 
   try {
-    const loaded = await loadSignups(db);
     const query = parseListQuery(new URL(context.request.url).searchParams);
+    if (!query.ok) {
+      return jsonResponse(400, { ok: false, error: query.code });
+    }
+    const loaded = await loadSignups(db);
     const matched = filterSignups(loaded.rows, query).map(presentSignup);
     const format = new URL(context.request.url).searchParams.get("format");
     if (format === "json") {

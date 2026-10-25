@@ -452,6 +452,57 @@ test("GET json filters by search and date", async () => {
   assert.equal(payload.days.length, 7);
 });
 
+test("GET rejects invalid date filters before loading signups for JSON and CSV", async () => {
+  const invalid = ["garbage", "2026-2-01", "2026-02-29", "1900-02-29", "2026-04-31", "2026-00-10", "2026-13-01", "2026-01-00", "2026-01-32", "2026-01-01T00:00:00Z"];
+  for (const format of ["json", "csv"]) {
+    const cases = invalid.flatMap(value => [
+      [new URLSearchParams({ from: value }), "invalid_date"],
+      [new URLSearchParams({ to: value }), "invalid_date"],
+    ]);
+    cases.push([new URLSearchParams({ from: "2026-09-15", to: "2026-09-14" }), "invalid_date_range"]);
+    for (const [params, error] of cases) {
+      const db = memoryDb();
+      const prepare = db.prepare;
+      let reads = 0;
+      db.prepare = (sql) => {
+        if (sql.includes("FROM waitlist")) reads++;
+        return prepare(sql);
+      };
+      params.set("format", format);
+      const res = await onRequestGet({
+        request: request(`https://sillyapps.co/api/waitlist?${params}`, withBearer()),
+        env: adminEnv(db),
+      });
+      assert.equal(res.status, 400, params.toString());
+      assert.deepEqual(await res.json(), { ok: false, error });
+      assert.equal(reads, 0);
+    }
+  }
+});
+
+test("GET accepts leap days, optional bounds, and inclusive same-day ranges", async () => {
+  const db = memoryDb();
+  seed(db, [
+    { email: "before@example.com", created_at: "2000-02-28 23:59:59" },
+    { email: "leap@example.com", created_at: "2000-02-29 23:59:59" },
+    { email: "after@example.com", created_at: "2000-03-01 00:00:00" },
+  ]);
+  for (const [query, expected] of [
+    ["", ["before", "leap", "after"]],
+    ["from=&to=", ["before", "leap", "after"]],
+    ["from=2000-02-29", ["leap", "after"]],
+    ["to=2000-02-29", ["before", "leap"]],
+    ["from=2000-02-29&to=2000-02-29", ["leap"]],
+  ]) {
+    const res = await onRequestGet({
+      request: request(`https://sillyapps.co/api/waitlist?format=json&${query}`, withBearer()),
+      env: adminEnv(db),
+    });
+    assert.equal(res.status, 200, query);
+    assert.deepEqual((await res.json()).signups.map(row => row.email), expected.map(name => `${name}@example.com`));
+  }
+});
+
 test("GET json still lists rows before the admin migration", async () => {
   const db = memoryDb({ missingAdminColumns: true });
   seed(db, [{ email: "ada@example.com", name: "Ada" }]);
