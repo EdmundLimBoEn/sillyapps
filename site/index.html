@@ -212,7 +212,7 @@
             <h2 class="section-title" id="waitlist-heading">Join the waitlist</h2>
             <p class="section-lead">Leave an email. When an app ships, you get one short note. Nothing else.</p>
           </div>
-          <form class="waitlist-card" data-waitlist-form novalidate>
+          <form class="waitlist-card" data-waitlist-form method="post" action="/api/waitlist" novalidate>
             <label class="hp" aria-hidden="true">
               Company
               <input type="text" name="company" tabindex="-1" autocomplete="off">

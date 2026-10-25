@@ -53,7 +53,7 @@
         <p class="waitlist-lead">
           Enter the <code>WAITLIST_ADMIN_TOKEN</code>. Same token as CSV export.
         </p>
-        <form class="admin-login-form" data-login-form>
+        <form class="admin-login-form" data-login-form method="post" action="/api/waitlist/session">
           <div class="field">
             <label for="admin-token">Admin token</label>
             <input id="admin-token" name="token" type="password" autocomplete="current-password" required>

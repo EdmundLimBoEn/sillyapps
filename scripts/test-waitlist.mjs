@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
 import "./test-admin.mjs";
+import "./test-forms.mjs";
 import {
   onRequestDelete,
   onRequestGet,
