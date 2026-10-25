@@ -97,6 +97,12 @@ export function parseListQuery(searchParams) {
   const q = typeof qRaw === "string" ? qRaw.trim().toLowerCase() : "";
   const from = dateOnly(searchParams.get("from"));
   const to = dateOnly(searchParams.get("to"));
+  if (from === null || to === null) {
+    return { ok: false, code: "invalid_date" };
+  }
+  if (from && to && from > to) {
+    return { ok: false, code: "invalid_date_range" };
+  }
   const emailedParam = searchParams.get("emailed");
   let emailed = null;
   if (emailedParam === "1" || emailedParam === "true") {
@@ -104,7 +110,7 @@ export function parseListQuery(searchParams) {
   } else if (emailedParam === "0" || emailedParam === "false") {
     emailed = 0;
   }
-  return { q, from, to, emailed };
+  return { ok: true, q, from, to, emailed };
 }
 
 export function filterSignups(rows, query) {
@@ -306,8 +312,17 @@ function hex(bytes) {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-async function sessionHash(id) {
+async function ipHash(id) {
   return hex(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(id))));
+}
+
+async function sessionHash(id, token) {
+  const encoder = new TextEncoder();
+  // Rotating the admin token invalidates all previously issued sessions.
+  const key = await crypto.subtle.importKey(
+    "raw", encoder.encode(token), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]
+  );
+  return hex(new Uint8Array(await crypto.subtle.sign("HMAC", key, encoder.encode(id))));
 }
 
 function readSessionId(request) {
@@ -319,21 +334,21 @@ async function cleanExpiredSessions(db) {
   await db.prepare("DELETE FROM admin_sessions WHERE expires_at <= ?").bind(Date.now()).run();
 }
 
-export async function createAdminSession(db) {
+export async function createAdminSession(db, token) {
   const id = hex(crypto.getRandomValues(new Uint8Array(32)));
   const now = Date.now();
   await cleanExpiredSessions(db);
   await db.prepare(
     "INSERT INTO admin_sessions (session_hash, created_at, expires_at) VALUES (?, ?, ?)"
-  ).bind(await sessionHash(id), now, now + SESSION_LIFETIME_MS).run();
+  ).bind(await sessionHash(id, token), now, now + SESSION_LIFETIME_MS).run();
   return id;
 }
 
-export async function deleteAdminSession(request, db) {
+export async function deleteAdminSession(request, db, token) {
   const id = readSessionId(request);
   if (id) {
     await db.prepare("DELETE FROM admin_sessions WHERE session_hash = ?")
-      .bind(await sessionHash(id)).run();
+      .bind(await sessionHash(id, token)).run();
   }
   await cleanExpiredSessions(db);
 }
@@ -365,27 +380,20 @@ export function clientIp(request) {
   return (request.headers.get("cf-connecting-ip") || "").trim();
 }
 
-export async function hitLimit(db, bucket, ip, limit, windowMs, record = true, now = Date.now()) {
+export async function hitLimit(db, bucket, ip, limit, windowMs, now = Date.now()) {
   const windowStart = Math.floor(now / windowMs) * windowMs;
-  const key = `${bucket}:${await sessionHash(ip)}`;
+  const key = `${bucket}:${await ipHash(ip)}`;
   // Cleanup runs with requests, so no scheduled job or isolate-local state is needed.
   await db.prepare("DELETE FROM rate_limits WHERE window_start < ?")
     .bind(now - 86400000).run();
-  let limited;
-  if (record) {
-    const row = await db.prepare(
-      "INSERT INTO rate_limits (key, window_start, count) VALUES (?, ?, 1) " +
-      "ON CONFLICT(key, window_start) DO UPDATE SET count = count + 1 RETURNING count"
-    ).bind(key, windowStart).first();
-    limited = row.count > limit;
-  } else {
-    const row = await db.prepare(
-      "SELECT count FROM rate_limits WHERE key = ? AND window_start = ?"
-    ).bind(key, windowStart).first();
-    limited = (row?.count || 0) >= limit;
-  }
+  // A rejected reservation must not consume budget that cannot be refunded.
+  const row = await db.prepare(
+    "INSERT INTO rate_limits (key, window_start, count) VALUES (?, ?, 1) " +
+    "ON CONFLICT(key, window_start) DO UPDATE SET count = count + 1 " +
+    "WHERE count < ? RETURNING count"
+  ).bind(key, windowStart, limit).first();
   // Return seconds until this checked window expires, rounding up for clients.
-  return limited ? Math.max(1, Math.ceil((windowStart + windowMs - Date.now()) / 1000)) : 0;
+  return row ? 0 : Math.max(1, Math.ceil((windowStart + windowMs - Date.now()) / 1000));
 }
 
 export async function postRateLimited(request, db) {
@@ -394,10 +402,6 @@ export async function postRateLimited(request, db) {
   } catch {
     return false;
   }
-}
-
-export function loginRateLimited(request, db) {
-  return hitLimit(db, "login", clientIp(request), LOGIN_LIMIT, LOGIN_WINDOW_MS, false);
 }
 
 export function rejectCrossSiteAdmin(request) {
@@ -424,7 +428,7 @@ export async function requireAdmin(request, env, token) {
       try {
         const session = await env.DB.prepare(
           "SELECT session_hash FROM admin_sessions WHERE session_hash = ? AND expires_at > ?"
-        ).bind(await sessionHash(id), Date.now()).first();
+        ).bind(await sessionHash(id, want), Date.now()).first();
         if (session) return { ok: true };
       } catch {
         return { ok: false, response: jsonResponse(503, { ok: false, error: "unavailable" }) };
@@ -439,7 +443,7 @@ export async function requireAdmin(request, env, token) {
   const attemptTime = Date.now();
   try {
     // Reserve actual token guesses atomically; session checks never use this budget.
-    const retryAfter = await hitLimit(env.DB, "login", clientIp(request), LOGIN_LIMIT, LOGIN_WINDOW_MS, true, attemptTime);
+    const retryAfter = await hitLimit(env.DB, "login", clientIp(request), LOGIN_LIMIT, LOGIN_WINDOW_MS, attemptTime);
     if (retryAfter) {
       return { ok: false, response: rateLimitedResponse(retryAfter) };
     }
@@ -454,7 +458,7 @@ export async function requireAdmin(request, env, token) {
     // Refund only this attempt, in its original window, preserving other failures.
     await env.DB.prepare(
       "UPDATE rate_limits SET count = count - 1 WHERE key = ? AND window_start = ?"
-    ).bind(`login:${await sessionHash(clientIp(request))}`,
+    ).bind(`login:${await ipHash(clientIp(request))}`,
       Math.floor(attemptTime / LOGIN_WINDOW_MS) * LOGIN_WINDOW_MS).run();
   } catch {
     return { ok: false, response: jsonResponse(503, { ok: false, error: "unavailable" }) };
@@ -467,7 +471,12 @@ function dateOnly(value) {
     return "";
   }
   const trimmed = value.trim();
-  return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : "";
+  if (!trimmed) return "";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return null;
+  const date = new Date(`${trimmed}T00:00:00.000Z`);
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === trimmed
+    ? trimmed
+    : null;
 }
 
 export const WAITLIST_SELECT_ADMIN =
