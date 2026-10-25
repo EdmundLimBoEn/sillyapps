@@ -129,6 +129,11 @@ function memoryDb(options = {}) {
         return { results: list };
       },
       async first() {
+        if (text.startsWith("UPDATE waitlist") && text.includes("RETURNING")) {
+          await this.run();
+          const row = rows.get(bound[bound.length - 1]);
+          return row ? asRow(row) : null;
+        }
         if (text.includes("rate_limits")) {
           const [key, window_start] = bound;
           const id = JSON.stringify([key, window_start]);
@@ -870,7 +875,10 @@ print(json.dumps(result))
         bind(...params) {
           bindings.push(params);
           return {
-            async run() { sql(query, params); return { success: true }; },
+            async run() {
+              const rows = sql(`${query} RETURNING *`, params);
+              return { success: true, meta: { changes: rows.length } };
+            },
             async first() {
               const row = sql(query, params)[0] || null;
               // D1 results arrive asynchronously, including concurrent stale reads.
@@ -892,6 +900,54 @@ print(json.dumps(result))
     });
   }
   return { handlers, db, sql, bindings };
+}
+
+for (const mutation of ["update", "delete"]) {
+  test(`PATCH returns its applied row despite an intervening ${mutation}`, async (t) => {
+    const { db, sql } = await sharedLimitFixture(t);
+    const email = "ada@example.com";
+    const created = "2026-09-15 12:00:00";
+    sql("INSERT INTO waitlist (email, name, created_at) VALUES (?, ?, ?)", [email, "Ada", created]);
+    const prepare = db.prepare;
+    let intervened = false;
+    db.prepare = (query) => {
+      const statement = prepare(query);
+      if (!query.startsWith("UPDATE waitlist")) return statement;
+      return {
+        bind(...params) {
+          const bound = statement.bind(...params);
+          return Object.fromEntries(["run", "first"].map(method => [method, async () => {
+            const result = await bound[method]();
+            // A second writer commits after this mutation, before its result
+            // reaches the handler (and before any separate SELECT can run).
+            if (mutation === "update") {
+              sql("UPDATE waitlist SET emailed = 0, note = ? WHERE email = ?", ["another writer", email]);
+            } else {
+              sql("DELETE FROM waitlist WHERE email = ?", [email]);
+            }
+            intervened = true;
+            return result;
+          }]));
+        },
+      };
+    };
+    const res = await onRequestPatch({
+      request: request("https://sillyapps.co/api/waitlist", withBearer({
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email, emailed: true, note: "sent" }),
+      })),
+      env: adminEnv(db),
+    });
+    assert.equal(intervened, true);
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), {
+      ok: true,
+      signup: { email, name: "Ada", created_at: created, emailed: true, note: "sent" },
+    });
+    assert.deepEqual(sql("SELECT emailed, note FROM waitlist WHERE email = ?", [email]),
+      mutation === "update" ? [{ emailed: 0, note: "another writer" }] : []);
+  });
 }
 
 for (const [purpose, limit] of [["post", 8], ["login", 20]]) {

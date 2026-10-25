@@ -136,19 +136,11 @@ export async function onRequestPatch(context) {
   binds.push(parsed.email);
 
   try {
-    const result = await db
-      .prepare(`UPDATE waitlist SET ${sets.join(", ")} WHERE email = ?`)
-      .bind(...binds)
-      .run();
-    const changes = result?.meta?.changes ?? 0;
-    if (!changes) {
-      return jsonResponse(404, { ok: false, error: "not_found" });
-    }
     const row = await db
       .prepare(
-        "SELECT email, name, created_at, emailed, note FROM waitlist WHERE email = ?"
+        `UPDATE waitlist SET ${sets.join(", ")} WHERE email = ? RETURNING email, name, created_at, emailed, note`
       )
-      .bind(parsed.email)
+      .bind(...binds)
       .first();
     if (!row) {
       return jsonResponse(404, { ok: false, error: "not_found" });
