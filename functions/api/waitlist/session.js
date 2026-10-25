@@ -3,7 +3,6 @@ import {
   createAdminSession,
   deleteAdminSession,
   jsonResponse,
-  loginRateLimited,
   readJson,
   requireAdmin,
   rejectCrossSiteAdmin,
@@ -21,18 +20,11 @@ export async function onRequestPost(context) {
   const body = await readJson(context.request);
   if (body instanceof Response) return body;
   const token = typeof body?.token === "string" ? body.token : "";
-  try {
-    if (token && await loginRateLimited(context.request, context.env.DB)) {
-      return jsonResponse(429, { ok: false, error: "rate_limited" });
-    }
-  } catch {
-    return jsonResponse(503, { ok: false, error: "unavailable" });
-  }
   const gate = await requireAdmin(context.request, context.env, token);
   if (!gate.ok) return gate.response;
 
   try {
-    const id = await createAdminSession(context.env.DB);
+    const id = await createAdminSession(context.env.DB, want);
     const res = jsonResponse(200, { ok: true });
     res.headers.set("Set-Cookie", sessionCookie(id));
     return res;
@@ -49,7 +41,7 @@ export async function onRequestDelete(context) {
   const crossSite = rejectCrossSiteAdmin(context.request);
   if (crossSite) return crossSite;
   try {
-    await deleteAdminSession(context.request, context.env.DB);
+    await deleteAdminSession(context.request, context.env.DB, want);
   } catch {
     return jsonResponse(503, { ok: false, error: "unavailable" });
   }

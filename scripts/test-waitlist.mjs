@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import test from "node:test";
 import "./test-admin.mjs";
 import "./test-forms.mjs";
+import "./test-deploy.mjs";
 import {
   onRequestDelete,
   onRequestGet,
@@ -128,11 +129,17 @@ function memoryDb(options = {}) {
         return { results: list };
       },
       async first() {
+        if (text.startsWith("UPDATE waitlist") && text.includes("RETURNING")) {
+          await this.run();
+          const row = rows.get(bound[bound.length - 1]);
+          return row ? asRow(row) : null;
+        }
         if (text.includes("rate_limits")) {
           const [key, window_start] = bound;
-          const id = JSON.stringify(bound);
+          const id = JSON.stringify([key, window_start]);
           let row = rateLimits.get(id);
           if (text.startsWith("INSERT")) {
+            if (row && text.includes("WHERE count < ?") && row.count >= bound[2]) return null;
             row = { key, window_start, count: (row?.count || 0) + 1 };
             rateLimits.set(id, row);
           }
@@ -445,6 +452,57 @@ test("GET json filters by search and date", async () => {
   assert.equal(payload.days.length, 7);
 });
 
+test("GET rejects invalid date filters before loading signups for JSON and CSV", async () => {
+  const invalid = ["garbage", "2026-2-01", "2026-02-29", "1900-02-29", "2026-04-31", "2026-00-10", "2026-13-01", "2026-01-00", "2026-01-32", "2026-01-01T00:00:00Z"];
+  for (const format of ["json", "csv"]) {
+    const cases = invalid.flatMap(value => [
+      [new URLSearchParams({ from: value }), "invalid_date"],
+      [new URLSearchParams({ to: value }), "invalid_date"],
+    ]);
+    cases.push([new URLSearchParams({ from: "2026-09-15", to: "2026-09-14" }), "invalid_date_range"]);
+    for (const [params, error] of cases) {
+      const db = memoryDb();
+      const prepare = db.prepare;
+      let reads = 0;
+      db.prepare = (sql) => {
+        if (sql.includes("FROM waitlist")) reads++;
+        return prepare(sql);
+      };
+      params.set("format", format);
+      const res = await onRequestGet({
+        request: request(`https://sillyapps.co/api/waitlist?${params}`, withBearer()),
+        env: adminEnv(db),
+      });
+      assert.equal(res.status, 400, params.toString());
+      assert.deepEqual(await res.json(), { ok: false, error });
+      assert.equal(reads, 0);
+    }
+  }
+});
+
+test("GET accepts leap days, optional bounds, and inclusive same-day ranges", async () => {
+  const db = memoryDb();
+  seed(db, [
+    { email: "before@example.com", created_at: "2000-02-28 23:59:59" },
+    { email: "leap@example.com", created_at: "2000-02-29 23:59:59" },
+    { email: "after@example.com", created_at: "2000-03-01 00:00:00" },
+  ]);
+  for (const [query, expected] of [
+    ["", ["before", "leap", "after"]],
+    ["from=&to=", ["before", "leap", "after"]],
+    ["from=2000-02-29", ["leap", "after"]],
+    ["to=2000-02-29", ["before", "leap"]],
+    ["from=2000-02-29&to=2000-02-29", ["leap"]],
+  ]) {
+    const res = await onRequestGet({
+      request: request(`https://sillyapps.co/api/waitlist?format=json&${query}`, withBearer()),
+      env: adminEnv(db),
+    });
+    assert.equal(res.status, 200, query);
+    assert.deepEqual((await res.json()).signups.map(row => row.email), expected.map(name => `${name}@example.com`));
+  }
+});
+
 test("GET json still lists rows before the admin migration", async () => {
   const db = memoryDb({ missingAdminColumns: true });
   seed(db, [{ email: "ada@example.com", name: "Ada" }]);
@@ -581,7 +639,7 @@ test("session cookie contains a random id and D1 stores only its hash for 12 hou
   assert.match(cookie, /Secure/);
   assert.match(cookie, /SameSite=Strict/);
   assert.match(cookie, /Path=\/(?:;|$)/);
-  const hash = createHash("sha256").update(id).digest("hex");
+  const hash = createHmac("sha256", env.WAITLIST_ADMIN_TOKEN).update(id).digest("hex");
   assert.equal(db.sessions.size, 1);
   const row = db.sessions.get(hash);
   assert.deepEqual(Object.keys(row).sort(), ["created_at", "expires_at", "session_hash"]);
@@ -594,13 +652,14 @@ test("session cookie contains a random id and D1 stores only its hash for 12 hou
   assert.equal(db.sessions.size, 2);
 });
 
-for (const state of ["valid", "logged out", "expired", "legacy token", "unknown id"]) {
+for (const state of ["valid", "logged out", "expired", "legacy token", "unknown id", "rotated token"]) {
   test(`admin routes enforce ${state} sessions`, async (t) => {
     const db = memoryDb();
     const env = adminEnv(db);
     const now = Date.now();
     t.mock.method(Date, "now", () => now);
     const { id } = await loginSession(env);
+    if (state === "rotated token") env.WAITLIST_ADMIN_TOKEN = "rotated-test-token";
     if (state === "logged out") {
       const logout = await onSessionDelete({
         request: authRequest("DELETE", "/session", id, "", true), env,
@@ -637,7 +696,7 @@ test("login cleans up expired sessions without deleting live sessions", async (t
   t.mock.method(Date, "now", () => now + 12 * 60 * 60 * 1000);
   await loginSession(env);
   assert.equal(db.sessions.size, 2);
-  assert.equal(db.sessions.has(createHash("sha256").update(old.id).digest("hex")), false);
+  assert.equal(db.sessions.has(createHmac("sha256", env.WAITLIST_ADMIN_TOKEN).update(old.id).digest("hex")), false);
   const probe = await onSessionGet({ request: authRequest("GET", "/session", live.id, "", true), env });
   assert.equal(probe.status, 200);
 });
@@ -653,6 +712,27 @@ test("logout revokes only the supplied session", async () => {
   assert.equal(env.DB.sessions.size, 1);
   const probe = await onSessionGet({ request: authRequest("GET", "/session", second.id, "", true), env });
   assert.equal(probe.status, 200);
+});
+
+test("token rotation rejects old credentials and allows new sessions to log out", async () => {
+  const env = adminEnv(memoryDb());
+  const oldToken = env.WAITLIST_ADMIN_TOKEN;
+  const old = await loginSession(env);
+  env.WAITLIST_ADMIN_TOKEN = "rotated-test-token";
+  const bearer = await onSessionGet({ request: authRequest("GET", "/session", oldToken), env });
+  assert.equal(bearer.status, 401);
+  const fresh = await loginSession(env);
+  for (const [id, status] of [[old.id, 401], [fresh.id, 200]]) {
+    const probe = await onSessionGet({ request: authRequest("GET", "/session", id, "", true), env });
+    assert.equal(probe.status, status);
+  }
+  const logout = await onSessionDelete({
+    request: authRequest("DELETE", "/session", fresh.id, "", true), env,
+  });
+  assert.equal(logout.status, 200);
+  assert.match(logout.headers.get("set-cookie"), /Max-Age=0/);
+  const replay = await onSessionGet({ request: authRequest("GET", "/session", fresh.id, "", true), env });
+  assert.equal(replay.status, 401);
 });
 
 test("session database failures deny access and do not report successful login or logout", async () => {
@@ -846,7 +926,10 @@ print(json.dumps(result))
         bind(...params) {
           bindings.push(params);
           return {
-            async run() { sql(query, params); return { success: true }; },
+            async run() {
+              const rows = sql(`${query} RETURNING *`, params);
+              return { success: true, meta: { changes: rows.length } };
+            },
             async first() {
               const row = sql(query, params)[0] || null;
               // D1 results arrive asynchronously, including concurrent stale reads.
@@ -868,6 +951,54 @@ print(json.dumps(result))
     });
   }
   return { handlers, db, sql, bindings };
+}
+
+for (const mutation of ["update", "delete"]) {
+  test(`PATCH returns its applied row despite an intervening ${mutation}`, async (t) => {
+    const { db, sql } = await sharedLimitFixture(t);
+    const email = "ada@example.com";
+    const created = "2026-09-15 12:00:00";
+    sql("INSERT INTO waitlist (email, name, created_at) VALUES (?, ?, ?)", [email, "Ada", created]);
+    const prepare = db.prepare;
+    let intervened = false;
+    db.prepare = (query) => {
+      const statement = prepare(query);
+      if (!query.startsWith("UPDATE waitlist")) return statement;
+      return {
+        bind(...params) {
+          const bound = statement.bind(...params);
+          return Object.fromEntries(["run", "first"].map(method => [method, async () => {
+            const result = await bound[method]();
+            // A second writer commits after this mutation, before its result
+            // reaches the handler (and before any separate SELECT can run).
+            if (mutation === "update") {
+              sql("UPDATE waitlist SET emailed = 0, note = ? WHERE email = ?", ["another writer", email]);
+            } else {
+              sql("DELETE FROM waitlist WHERE email = ?", [email]);
+            }
+            intervened = true;
+            return result;
+          }]));
+        },
+      };
+    };
+    const res = await onRequestPatch({
+      request: request("https://sillyapps.co/api/waitlist", withBearer({
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email, emailed: true, note: "sent" }),
+      })),
+      env: adminEnv(db),
+    });
+    assert.equal(intervened, true);
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), {
+      ok: true,
+      signup: { email, name: "Ada", created_at: created, emailed: true, note: "sent" },
+    });
+    assert.deepEqual(sql("SELECT emailed, note FROM waitlist WHERE email = ?", [email]),
+      mutation === "update" ? [{ emailed: 0, note: "another writer" }] : []);
+  });
 }
 
 for (const [purpose, limit] of [["post", 8], ["login", 20]]) {
@@ -906,7 +1037,7 @@ for (const [purpose, limit] of [["post", 8], ["login", 20]]) {
   });
 }
 
-for (const operation of ["SELECT", "INSERT", "DELETE", "UPDATE"]) {
+for (const operation of ["INSERT", "DELETE", "UPDATE"]) {
   test(`admin fails closed on limiter ${operation} error`, async () => {
     const db = memoryDb();
     const prepare = db.prepare;
@@ -968,8 +1099,43 @@ for (const mode of ["bearer", "login"]) {
     assert.equal(comparisons, 1, "only the last available attempt may compare credentials");
     assert.equal(statuses.filter(status => status === 401).length, 1);
     assert.equal(statuses.filter(status => status === 429).length, 63);
+    assert.deepEqual(sql("SELECT count FROM rate_limits"), [{ count: 20 }]);
   });
 }
+
+for (const mode of ["bearer", "login"]) {
+  test(`concurrent valid ${mode} requests refund reservations without leaving a lockout`, async (t) => {
+    const { handlers, db, sql } = await sharedLimitFixture(t);
+    const env = adminEnv(db);
+    t.mock.method(Date, "now", () => 1800000000000);
+    const call = async (i) => {
+      const req = authRequest(mode === "login" ? "POST" : "GET", "/session",
+        env.WAITLIST_ADMIN_TOKEN, "192.0.2.92");
+      if (mode === "login") return (await handlers[i % 2].login({ request: req, env })).status;
+      const gate = await handlers[i % 2].authorize(req, env);
+      return gate.ok ? 200 : gate.response.status;
+    };
+    const statuses = await Promise.all(Array.from({ length: 64 }, (_, i) => call(i)));
+    assert.equal(statuses.filter(status => status === 200).length, 20);
+    assert.equal(statuses.filter(status => status === 429).length, 44);
+    assert.deepEqual(sql("SELECT count FROM rate_limits"), [{ count: 0 }]);
+    assert.equal(await call(0), 200);
+  });
+}
+
+test("login uses one atomic reservation and no preliminary limiter read", async (t) => {
+  const { db } = await sharedLimitFixture(t);
+  const queries = [];
+  const prepare = db.prepare;
+  db.prepare = (query) => {
+    queries.push(query);
+    return prepare(query);
+  };
+  await loginSession(adminEnv(db));
+  assert.equal(queries.length, 5, "reservation cleanup, reservation, refund, session cleanup and insertion");
+  assert.equal(queries.filter(query => query.startsWith("SELECT") && query.includes("rate_limits")).length, 0);
+  assert.equal(queries.filter(query => query.startsWith("DELETE FROM rate_limits")).length, 1);
+});
 
 test("migrations index rate limit cleanup by window_start", async (t) => {
   const { sql } = await sharedLimitFixture(t);

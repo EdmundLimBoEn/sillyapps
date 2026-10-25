@@ -13,6 +13,7 @@ const sparkLine = document.querySelector("[data-spark-line]");
 const migrationBanner = document.querySelector("[data-migration-banner]");
 
 let authGeneration = 0;
+let boardGeneration = 0;
 let authController = new AbortController();
 let adminFields = true;
 
@@ -30,7 +31,7 @@ function resetAuth() {
   authController = new AbortController();
 }
 
-async function api(url, init = {}) {
+async function api(url, init = {}, isCurrent = () => true) {
   const generation = authGeneration;
   const headers = { ...(init.headers || {}) };
   if (init.body && !headers["content-type"]) {
@@ -43,14 +44,14 @@ async function api(url, init = {}) {
       headers,
       signal: authController.signal,
     });
-    if (generation !== authGeneration) return null;
+    if (generation !== authGeneration || !isCurrent()) return null;
     if (res.status === 401 && init.method !== "POST") {
       showLogin();
       return null;
     }
     return res;
   } catch (error) {
-    if (generation !== authGeneration || error.name === "AbortError") return null;
+    if (generation !== authGeneration || !isCurrent() || error.name === "AbortError") return null;
     setStatus(loginView.hidden ? boardStatus : loginStatus, "err",
       "Request failed. Check your connection and try again.");
     return null;
@@ -183,11 +184,13 @@ function renderRows(signups) {
   }
 }
 
-async function loadBoard() {
+async function loadBoard({ clearStatus = false } = {}) {
   const generation = authGeneration;
+  const requestGeneration = ++boardGeneration;
+  const isCurrent = () => requestGeneration === boardGeneration;
   const params = queryString();
   params.set("format", "json");
-  const res = await api(`/api/waitlist?${params.toString()}`);
+  const res = await api(`/api/waitlist?${params.toString()}`, {}, isCurrent);
   if (!res) return false;
   if (res.status === 404) {
     showLogin();
@@ -195,7 +198,7 @@ async function loadBoard() {
     return false;
   }
   const payload = await res.json().catch(() => null);
-  if (generation !== authGeneration) return;
+  if (generation !== authGeneration || !isCurrent()) return;
   if (!res.ok || !payload || payload.ok === false) {
     setStatus(loginView.hidden ? boardStatus : loginStatus, "err",
       "Could not load the waitlist. Please try again.");
@@ -213,6 +216,7 @@ async function loadBoard() {
   drawSpark(payload.days || []);
   renderRows(payload.signups || []);
   showBoard();
+  if (clearStatus) setStatus(boardStatus, "", "");
   return true;
 }
 
@@ -334,16 +338,13 @@ logoutBtn.addEventListener("click", async () => {
 
 filtersForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const generation = authGeneration;
   setStatus(boardStatus, "pending", "Filtering…");
-  const ok = await loadBoard();
-  if (generation !== authGeneration) return;
-  if (ok) setStatus(boardStatus, "", "");
+  await loadBoard({ clearStatus: true });
 });
 
 filtersForm.querySelector("[data-clear]").addEventListener("click", async () => {
   filtersForm.reset();
-  await loadBoard();
+  await loadBoard({ clearStatus: true });
 });
 
 document.querySelectorAll("[data-export]").forEach((button) => {
