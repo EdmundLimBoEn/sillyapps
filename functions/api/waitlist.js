@@ -1,11 +1,10 @@
 import {
-  filterSignups,
   jsonResponse,
-  lastSevenDays,
   loadSignups,
   normalizeEmail,
   parseLeadPatch,
   parseListQuery,
+  parsePagination,
   parseSignup,
   postRateLimited,
   presentSignup,
@@ -78,23 +77,30 @@ export async function onRequestGet(context) {
   }
 
   try {
-    const loaded = await loadSignups(db);
-    const query = parseListQuery(new URL(context.request.url).searchParams);
-    const matched = filterSignups(loaded.rows, query).map(presentSignup);
-    const format = new URL(context.request.url).searchParams.get("format");
+    const params = new URL(context.request.url).searchParams;
+    const page = parsePagination(params);
+    if (!page) return jsonResponse(400, { ok: false, error: "invalid_pagination" });
+    const loaded = await loadSignups(db, parseListQuery(params), page);
+    const matched = loaded.rows.map(presentSignup);
+    const nextOffset = page.offset + matched.length < loaded.count ? page.offset + page.limit : null;
+    const format = params.get("format");
     if (format === "json") {
       return jsonResponse(200, {
         ok: true,
         signups: matched,
-        count: matched.length,
-        total: loaded.rows.length,
-        days: lastSevenDays(loaded.rows),
+        count: loaded.count,
+        total: loaded.total,
+        days: loaded.days,
+        limit: page.limit,
+        offset: page.offset,
+        next_offset: nextOffset,
         admin_fields: loaded.adminFields,
       });
     }
     return new Response(toCsv(matched), {
       headers: {
         "content-type": "text/csv; charset=utf-8",
+        "x-next-offset": nextOffset == null ? "" : String(nextOffset),
         "content-disposition": "attachment; filename=waitlist.csv",
         "cache-control": "no-store",
       },

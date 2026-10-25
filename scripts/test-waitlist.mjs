@@ -48,6 +48,17 @@ function memoryDb(options = {}) {
 
   function statement(sql, bound = []) {
     const text = String(sql);
+    function selectedRows() {
+      let i = 0;
+      const query = {
+        q: text.includes("instr(") ? bound[i++] : "",
+        from: text.includes(">= ?") ? bound[i++] : "",
+        to: text.includes("<= ?") ? bound[i++] : "",
+        emailed: /(?:emailed|0) = \?/.test(text) ? bound[i++] : null,
+      };
+      return filterSignups([...rows.values()].map(asRow), query).sort((a, b) =>
+        a.created_at.localeCompare(b.created_at) || a.email.localeCompare(b.email));
+    }
     return {
       bind(...args) {
         return statement(sql, args);
@@ -120,14 +131,15 @@ function memoryDb(options = {}) {
         return { success: true, meta: { changes: 0 } };
       },
       async all() {
-        if (missingAdminColumns && text.includes("emailed")) {
+        if (missingAdminColumns && text.includes("created_at, emailed")) {
           throw new Error("no such column: emailed");
         }
-        const list = [...rows.values()].map(asRow);
-        list.sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
-        return { results: list };
+        if (text.includes("GROUP BY")) return { results: [] };
+        const list = selectedRows();
+        return { results: list.slice(bound.at(-1), bound.at(-1) + bound.at(-2)) };
       },
       async first() {
+        if (text.startsWith("SELECT COUNT(*)")) return { count: selectedRows().length };
         if (text.includes("rate_limits")) {
           const [key, window_start] = bound;
           const id = JSON.stringify(bound);
@@ -830,7 +842,9 @@ with sqlite3.connect(sys.argv[1]) as db:
     else:
         result = [dict(row) for row in db.execute(query, params).fetchall()]
 print(json.dumps(result))
-`, `${dir}/db.sqlite`, JSON.stringify([query, params, script])], { stdio: ["ignore", output, "inherit"], timeout: 10000 });
+`, `${dir}/db.sqlite`, JSON.stringify([query, params, script])], { stdio: ["ignore", output, "pipe"], timeout: 10000 });
+    } catch (error) {
+      throw new Error(error.stderr?.toString() || "SQLite fixture failed");
     } finally {
       closeSync(output);
     }
@@ -843,10 +857,12 @@ print(json.dumps(result))
   const db = {
     prepare(query) {
       return {
+        async all() { return { results: sql(query) }; },
         bind(...params) {
           bindings.push(params);
           return {
             async run() { sql(query, params); return { success: true }; },
+            async all() { return { results: sql(query, params) }; },
             async first() {
               const row = sql(query, params)[0] || null;
               // D1 results arrive asynchronously, including concurrent stale reads.
@@ -1050,4 +1066,91 @@ test("cross-site admin requests are rejected before database access", async () =
       }
     }
   }
+});
+
+
+test("list pages bound real SQL results, filters, totals, CSV and legacy schema", async (t) => {
+  const { db, sql } = await sharedLimitFixture(t);
+  sql("WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM n WHERE x < 205) INSERT INTO waitlist(email, name, created_at, emailed) SELECT printf('user%03d@example.com', x), 'Group', datetime('now'), x % 2 FROM n");
+  const get = (params) => onRequestGet({
+    request: request(`https://sillyapps.co/api/waitlist?${params}`, withBearer()), env: adminEnv(db),
+  });
+  const first = await (await get("format=json")).json();
+  assert.equal(first.signups.length, 100);
+  assert.equal(first.count, 205);
+  assert.equal(first.total, 205);
+  assert.equal(first.days.reduce((sum, day) => sum + day.count, 0), 205);
+  assert.equal(first.next_offset, 100);
+  const second = await (await get("format=json&offset=100")).json();
+  const last = await (await get("format=json&offset=200")).json();
+  assert.equal(second.signups.length, 100);
+  assert.equal(last.signups.length, 5);
+  assert.equal(last.next_offset, null);
+  assert.deepEqual([...first.signups, ...second.signups, ...last.signups].map(row => row.email),
+    Array.from({ length: 205 }, (_, i) => `user${String(i + 1).padStart(3, '0')}@example.com`));
+  const day = first.signups[0].created_at.slice(0, 10);
+  const filtered = await (await get(`format=json&q=GROUP&emailed=1&from=${day}&to=${day}&limit=2&offset=2`)).json();
+  assert.equal(filtered.count, 103);
+  assert.equal(filtered.total, 205);
+  assert.deepEqual(filtered.signups.map(row => row.email), ['user005@example.com', 'user007@example.com']);
+  assert.equal((await (await get("format=json&q=%25")).json()).count, 0);
+  assert.equal((await (await get("format=json&q=' OR 1=1--")).json()).count, 0);
+  for (const params of ["limit=0", "limit=101", "limit=-1", "limit=1.5", "limit=", "offset=-1", "offset=abc", "offset=9007199254740992"]) {
+    assert.equal((await get(params)).status, 400, params);
+  }
+  const csv = await get("offset=100");
+  assert.equal(csv.headers.get("x-next-offset"), "200");
+  const lines = (await csv.text()).trim().split("\n");
+  assert.equal(lines.length, 101);
+  assert.match(lines[1], /^user101@example.com,/);
+  assert.equal((await (await get("format=json&offset=999")).json()).signups.length, 0);
+  sql("ALTER TABLE waitlist DROP COLUMN emailed");
+  sql("ALTER TABLE waitlist DROP COLUMN note");
+  const legacy = await (await get("format=json&offset=200&emailed=0")).json();
+  assert.equal(legacy.admin_fields, false);
+  assert.equal(legacy.signups.length, 5);
+  assert.equal(legacy.count, 205);
+  assert.equal((await (await get("format=json&emailed=1")).json()).count, 0);
+});
+
+test("Unicode searches preserve matching, counts and pages on real SQLite", async (t) => {
+  const { db, sql } = await sharedLimitFixture(t);
+  // Put matches beyond the first SQL batch, with nonmatches between them.
+  sql("WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM n WHERE x < 205) INSERT INTO waitlist(email, name, created_at, emailed) SELECT printf('user%03d@example.com', x), CASE WHEN x IN (101, 103, 205) THEN 'Élodie' ELSE 'Other' END, '2026-09-15 12:00:00', 0 FROM n");
+  const get = (q, extra = "") => onRequestGet({
+    request: request(`https://sillyapps.co/api/waitlist?q=${encodeURIComponent(q)}&${extra}`, withBearer()),
+    env: adminEnv(db),
+  });
+  for (const q of ["Élodie", "élodie"]) {
+    const first = await (await get(q, "format=json&limit=2&from=2026-09-15&to=2026-09-15&emailed=0")).json();
+    assert.equal(first.count, 3);
+    assert.equal(first.total, 205);
+    assert.equal(first.next_offset, 2);
+    assert.deepEqual(first.signups.map(row => row.email), ["user101@example.com", "user103@example.com"]);
+    const last = await (await get(q, "format=json&limit=2&offset=2")).json();
+    assert.equal(last.count, 3);
+    assert.equal(last.next_offset, null);
+    assert.deepEqual(last.signups.map(row => row.email), ["user205@example.com"]);
+  }
+  const csv = await get("ÉLODIE", "limit=2&offset=2");
+  assert.equal(csv.headers.get("x-next-offset"), "");
+  assert.match(await csv.text(), /user205@example.com,Élodie/);
+  assert.equal((await (await get("élodie", "format=json&emailed=1")).json()).count, 0);
+  const beyond = await (await get("élodie", "format=json&offset=3")).json();
+  assert.equal(beyond.count, 3);
+  assert.deepEqual(beyond.signups, []);
+
+  // Include non-Latin case mappings, contextual sigma and expanding lowercase.
+  for (const [name, q] of [["МОСКВА", "москва"], ["ΟΣ", "ος"], ["İpek", "i\u0307pek"], ["Kelvin", "kelvin"]]) {
+    sql("UPDATE waitlist SET name = ? WHERE email = 'user205@example.com'", [name]);
+    const payload = await (await get(q, "format=json")).json();
+    assert.equal(payload.count, 1, name);
+    assert.equal(payload.signups[0].name, name);
+  }
+  sql("ALTER TABLE waitlist DROP COLUMN emailed");
+  sql("ALTER TABLE waitlist DROP COLUMN note");
+  const legacy = await (await get("Élodie", "format=json&emailed=0&limit=1&offset=1")).json();
+  assert.equal(legacy.admin_fields, false);
+  assert.equal(legacy.count, 2);
+  assert.equal(legacy.signups[0].email, "user103@example.com");
 });

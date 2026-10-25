@@ -127,3 +127,30 @@ for (const operation of ["filter", "delete"]) {
     assert.equal(app.get("rows").children.length, 0);
   });
 }
+
+
+test("board navigates pages and resets pagination when filtering", async () => {
+  const app = await browser();
+  await app.login();
+  const page = (offset, next) => Response.json({ ...listed, offset, next_offset: next, count: 205, total: 205 });
+  app.queue.push(page(0, 100));
+  await app.get("filters").fire("submit");
+  assert.equal(app.get("previous").disabled, true);
+  assert.equal(app.get("next").disabled, false);
+  app.queue.push(page(100, 200));
+  await app.get("next").fire("click");
+  assert.equal(new URL(app.calls.at(-1).url, "https://example.com").searchParams.get("offset"), "100");
+  assert.equal(app.get("previous").disabled, false);
+  app.queue.push(page(0, 100));
+  await app.get("previous").fire("click");
+  assert.equal(new URL(app.calls.at(-1).url, "https://example.com").searchParams.get("offset"), "0");
+  app.queue.push(page(100, null));
+  await app.get("next").fire("click");
+  assert.equal(app.get("next").disabled, true);
+  app.get("filters").fields.q = "ada";
+  app.queue.push(page(0, null));
+  await app.get("filters").fire("submit");
+  const url = new URL(app.calls.at(-1).url, "https://example.com");
+  assert.equal(url.searchParams.get("offset"), "0");
+  assert.equal(url.searchParams.get("q"), "ada");
+});

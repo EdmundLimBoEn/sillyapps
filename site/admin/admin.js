@@ -15,6 +15,10 @@ const migrationBanner = document.querySelector("[data-migration-banner]");
 let authGeneration = 0;
 let authController = new AbortController();
 let adminFields = true;
+let pageOffset = 0;
+let nextOffset = null;
+const previousBtn = document.querySelector("[data-previous]");
+const nextBtn = document.querySelector("[data-next]");
 
 function setStatus(el, kind, message) {
   if (!el) {
@@ -73,6 +77,8 @@ function showLogin() {
   boardView.hidden = true;
   logoutBtn.hidden = true;
   adminFields = true;
+  pageOffset = 0;
+  nextOffset = null;
   rowsEl.replaceChildren();
   countEl.textContent = "";
   sparkLine.setAttribute("points", "");
@@ -181,10 +187,11 @@ function renderRows(signups) {
   }
 }
 
-async function loadBoard() {
+async function loadBoard(offset = pageOffset) {
   const generation = authGeneration;
   const params = queryString();
   params.set("format", "json");
+  params.set("offset", offset);
   const res = await api(`/api/waitlist?${params.toString()}`);
   if (!res) return false;
   if (res.status === 404) {
@@ -202,11 +209,14 @@ async function loadBoard() {
   migrationBanner.hidden = adminFields;
   const total = payload.total ?? payload.signups.length;
   const count = payload.count ?? payload.signups.length;
-  if (count === total) {
-    countEl.textContent = total === 1 ? "1 signup" : `${total} signups`;
-  } else {
-    countEl.textContent = `Showing ${count} of ${total}`;
-  }
+  pageOffset = payload.offset ?? 0;
+  nextOffset = payload.next_offset ?? null;
+  previousBtn.disabled = pageOffset === 0;
+  nextBtn.disabled = nextOffset == null;
+  const shown = payload.signups.length;
+  countEl.textContent = shown
+    ? `Showing ${pageOffset + 1}–${pageOffset + shown} of ${count} matches (${total} signups)`
+    : `0 matches on this page (${total} signups)`;
   drawSpark(payload.days || []);
   renderRows(payload.signups || []);
   showBoard();
@@ -262,6 +272,7 @@ async function download(format) {
   const generation = authGeneration;
   const params = queryString();
   params.set("format", format);
+  params.set("offset", pageOffset);
   const res = await api(`/api/waitlist?${params.toString()}`);
   if (!res) return;
   if (!res.ok) {
@@ -329,18 +340,21 @@ filtersForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const generation = authGeneration;
   setStatus(boardStatus, "pending", "Filtering…");
-  await loadBoard();
+  await loadBoard(0);
   if (generation !== authGeneration) return;
   setStatus(boardStatus, "", "");
 });
 
 filtersForm.querySelector("[data-clear]").addEventListener("click", async () => {
   filtersForm.reset();
-  await loadBoard();
+  await loadBoard(0);
 });
 
 document.querySelectorAll("[data-export]").forEach((button) => {
   button.addEventListener("click", () => download(button.dataset.export));
 });
+
+previousBtn.addEventListener("click", () => loadBoard(Math.max(0, pageOffset - 100)));
+nextBtn.addEventListener("click", () => nextOffset == null ? undefined : loadBoard(nextOffset));
 
 loadBoard();
