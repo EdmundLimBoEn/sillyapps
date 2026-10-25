@@ -24,7 +24,7 @@ export async function onRequestPost(context) {
   if (!gate.ok) return gate.response;
 
   try {
-    const id = await createAdminSession(context.env.DB);
+    const id = await createAdminSession(context.env.DB, want);
     const res = jsonResponse(200, { ok: true });
     res.headers.set("Set-Cookie", sessionCookie(id));
     return res;
@@ -41,7 +41,7 @@ export async function onRequestDelete(context) {
   const crossSite = rejectCrossSiteAdmin(context.request);
   if (crossSite) return crossSite;
   try {
-    await deleteAdminSession(context.request, context.env.DB);
+    await deleteAdminSession(context.request, context.env.DB, want);
   } catch {
     return jsonResponse(503, { ok: false, error: "unavailable" });
   }
