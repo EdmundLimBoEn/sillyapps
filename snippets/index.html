@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script>
+      (function () {
+        var theme = "system";
+        try { theme = localStorage.getItem("sillyapps-theme") || "system"; } catch (e) {}
+        if (theme !== "light" && theme !== "dark") theme = "system";
+        var dark = theme === "dark" || (theme !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.setAttribute("data-theme", theme);
+        document.documentElement.style.colorScheme = dark ? "dark" : "light";
+      })();
+    </script>
+    <title>Snippets</title>
+    <link rel="canonical" href="https://snippets.sillyapps.co/">
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
+    <meta name="theme-color" content="#FAFAF9" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#0A0A0B" media="(prefers-color-scheme: dark)">
+    <meta name="author" content="Edmund Lim">
+    <link rel="stylesheet" href="/styles.css">
+    <style>
+      .hero .icon { width: 72px; height: 72px; margin-bottom: 1.25rem; }
+    </style>
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <header class="site-header wrap">
+      <a class="wordmark" href="https://sillyapps.co/" aria-label="sillyapps home"><svg class="wordmark-mark" viewBox="0 0 24 24" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="7" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="9" cy="10" r="1.3" fill="currentColor"/><circle cx="15" cy="10" r="1.3" fill="currentColor"/><path d="M8 14.5c1.2 1.6 2.6 2.3 4 2.3s2.8-.7 4-2.3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span>sillyapps</span></a>
+      <nav class="header-tools" aria-label="Primary">
+        <p class="byline">
+          <a class="nav-hide-sm" href="https://github.com/EdmundLimBoEn/snippets">GitHub</a>
+        </p>
+        <fieldset class="theme-toggle" data-theme-toggle>
+          <legend>Color theme</legend>
+          <label><input type="radio" name="color-theme" value="system" checked> Auto</label>
+          <label><input type="radio" name="color-theme" value="light"> Light</label>
+          <label><input type="radio" name="color-theme" value="dark"> Dark</label>
+        </fieldset>
+      </nav>
+    </header>
+
+    <main id="main">
+      <section class="hero wrap" aria-labelledby="hero-heading">
+        <svg class="icon" viewBox="0 0 48 48" aria-hidden="true"><rect width="48" height="48" rx="12" fill="var(--paper-2)" stroke="var(--line-strong)"/><rect x="18" y="11" width="19" height="15" rx="3.5" fill="none" stroke="var(--faint)" stroke-width="1.6"/><rect x="11" y="17" width="21" height="20" rx="4" fill="var(--paper-2)" stroke="var(--ink)" stroke-width="1.6"/><path d="M16 24h11M16 28.5h8M16 33h5" stroke="var(--accent)" stroke-width="1.6" stroke-linecap="round"/></svg>
+        <h1 id="hero-heading">Snippets</h1>
+        <p class="hero-lead"><strong>Saved snippets, one Hyper key away.</strong></p>
+        <p class="hero-lead">A macOS menu bar app. Press Hyper (caps lock) + a key to paste text, rich text, or images into any field. Several snippets on one key get a numbered picker, and your clipboard is restored after every paste. Open source, auto-updates.</p>
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="https://github.com/EdmundLimBoEn/snippets/releases/latest/download/Snippets.dmg" onclick="document.getElementById('snippets-download').showModal()">Download for Mac <span class="arrow" aria-hidden="true">→</span></a>
+          <a class="btn btn-ghost" href="https://github.com/EdmundLimBoEn/snippets">Source on GitHub</a>
+        </div>
+        <ul class="hero-meta"><li>macOS 26+</li><li>Menu bar</li><li>Open source</li></ul>
+        <p class="card-note">Needs Accessibility permission to paste.</p>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap">
+        <div class="footer-brand">
+      <a class="wordmark" href="https://sillyapps.co/" aria-label="sillyapps home"><svg class="wordmark-mark" viewBox="0 0 24 24" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="7" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="9" cy="10" r="1.3" fill="currentColor"/><circle cx="15" cy="10" r="1.3" fill="currentColor"/><path d="M8 14.5c1.2 1.6 2.6 2.3 4 2.3s2.8-.7 4-2.3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span>sillyapps</span></a>
+          <p>Small free apps by Edmund Lim.</p>
+          <ul class="footer-links">
+            <li><a href="https://sillyapps.co/">sillyapps.co</a></li>
+            <li><a href="https://github.com/EdmundLimBoEn/snippets">GitHub</a></li>
+          </ul>
+        </div>
+      </div>
+    </footer>
+    <dialog id="snippets-download" class="download-note" aria-labelledby="snippets-download-title">
+      <form method="dialog">
+        <p class="eyebrow">Your download has started</p>
+        <h2 id="snippets-download-title">One tip before you go</h2>
+        <p>Snippets works best with <a href="https://hyperkey.app" target="_blank" rel="noopener">Hyperkey</a> or <a href="https://karabiner-elements.pqrs.org" target="_blank" rel="noopener">Karabiner-Elements</a>, which turn caps lock into a Hyper key.</p>
+        <button class="btn btn-primary">Got it</button>
+      </form>
+    </dialog>
+    <script src="/theme.js"></script>
+  </body>
+</html>

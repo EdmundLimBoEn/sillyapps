@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="sillyapps">
+  <rect width="32" height="32" rx="8" fill="#0A0A0B"/>
+  <rect x="5.5" y="5.5" width="21" height="21" rx="6.5" fill="none" stroke="#EDEDEF" stroke-width="1.6"/>
+  <circle cx="12.5" cy="14" r="1.4" fill="#EDEDEF"/><circle cx="19.5" cy="14" r="1.4" fill="#EDEDEF"/>
+  <path d="M11.5 18.5c1.3 1.7 2.9 2.5 4.5 2.5s3.2-.8 4.5-2.5" fill="none" stroke="#A9BDE0" stroke-width="1.6" stroke-linecap="round"/>
+</svg>
