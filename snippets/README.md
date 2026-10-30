@@ -1,6 +1,6 @@
 # snippets.sillyapps.co
 
-Static landing page for Snippets. No build step. Text in `[BRACKETS]` is a placeholder for Edmund to write.
+Static landing page for Snippets. No build step.
 
 Preview: `python3 -m http.server 8790 --directory snippets`
 
