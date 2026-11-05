@@ -44,6 +44,7 @@ const required = [
   ["theme script", /\/theme\.js/],
   ["share QR image", /<img src="\/assets\/sillyapps-qr\.svg"[^>]*alt="QR code linking to https:\/\/sillyapps\.co"/],
   ["dark theme-color", /theme-color" content="#0A0A0B" media="\(prefers-color-scheme: dark\)"/],
+  ["text-only header wordmark", /<a class="wordmark" href="\/" aria-label="sillyapps home">sillyapps<\/a>/],
 ];
 
 const banned = [
@@ -59,6 +60,7 @@ const banned = [
   ["LMR board", /lmr\.edmundlim\.systems/i],
   ["UsageWidget host", /usagewidget\.edmundlim\.systems/i],
   ["Get it CTA", /get it on/i],
+  ["smiley wordmark mark", /wordmark-mark/],
 ];
 
 const missing = required
@@ -66,6 +68,34 @@ const missing = required
   .map(([name]) => name);
 if (missing.length) {
   console.error("Missing:", missing.join(", "));
+  process.exit(1);
+}
+
+if (/border-radius:\s*999px/.test(css)) {
+  console.error("Pill radii (999px) remain; use nested control radii");
+  process.exit(1);
+}
+
+const eyebrowRule = css.match(/\.eyebrow\s*\{[^}]*\}/);
+if (eyebrowRule && /text-transform:\s*uppercase/.test(eyebrowRule[0])) {
+  console.error(".eyebrow must stay sentence case (no uppercase transform)");
+  process.exit(1);
+}
+
+const heroEmRule = css.match(/\.hero h1 em\s*\{[^}]*\}/);
+if (heroEmRule && /font-style:\s*italic/.test(heroEmRule[0])) {
+  console.error("hero em must not use italic for emphasis");
+  process.exit(1);
+}
+
+if (/\.hero-meta li::before/.test(css)) {
+  console.error("hero-meta must not use accent bullet dots");
+  process.exit(1);
+}
+
+const favicon = fs.readFileSync(path.join(root, "favicon.svg"), "utf8");
+if (/<circle/.test(favicon)) {
+  console.error("favicon must not be a face");
   process.exit(1);
 }
 
